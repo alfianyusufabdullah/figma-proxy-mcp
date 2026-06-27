@@ -1,0 +1,22 @@
+{
+  "name": "Figma Proxy MCP",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "ui.html",
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "http://localhost:3000",
+      "ws://localhost:3000"
+    ],
+    "reasoning": "Connect to local proxy server for MCP integration",
+    "devAllowedDomains": [
+      "http://localhost:3000",
+      "ws://localhost:3000"
+    ]
+  },
+  "editorType": ["figma"],
+  "menu": [
+    {"name": "Start Proxy", "command": "start"}
+  ]
+}

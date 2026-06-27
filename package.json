@@ -1,0 +1,11 @@
+{
+  "name": "figma-proxy-mcp",
+  "private": true,
+  "scripts": {
+    "dev:plugin": "cd plugin && esbuild code.ts --bundle --outfile=dist/code.js --watch --target=es2017",
+    "dev:websocket": "cd websocket && npx tsx --watch src/index.ts",
+    "dev:mcp": "cd mcp-server && npx tsx --watch src/index.ts",
+    "build:plugin": "cd plugin && esbuild code.ts --bundle --outfile=dist/code.js --target=es2017",
+    "typecheck": "cd websocket && npx tsc --noEmit && cd ../mcp-server && npx tsc --noEmit"
+  }
+}
