@@ -3,146 +3,150 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { WebSocket, WebSocketServer } from 'ws'
 
-interface Snapshot {
-  nodes: unknown[]
-  styles: unknown[]
-  variables: unknown[]
-  selection: unknown[]
-  assets: Map<string, unknown>
+interface Connection {
+  ws: WebSocket
+  fileKey: string
+  fileName: string
+  isAlive: boolean
 }
 
 const app = new Hono()
-const snapshot: Snapshot = {
-  nodes: [],
-  styles: [],
-  variables: [],
-  selection: [],
-  assets: new Map(),
-}
+const connections = new Map<string, Connection>()
+const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
 
-const clients: Set<WebSocket> = new Set()
-const pendingExports: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }> = new Map()
+let reqCounter = 0
 
-function broadcast(msg: object) {
-  const data = JSON.stringify(msg)
-  for (const ws of clients) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(data)
-    }
-  }
+function nextRequestId(): string {
+  const now = new Date()
+  const ts = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
+  return `req-${ts}-${++reqCounter}`
 }
 
 app.use('/*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'OPTIONS'] }))
 
-app.get('/tree', (c) => {
-  const nodeId = c.req.query('nodeId')
-  if (nodeId) {
-    const find = (nodes: unknown[]): unknown | null => {
-      for (const n of nodes as Array<Record<string, unknown>>) {
-        if (n.id === nodeId) return n
-        if (n.children) {
-          const found = find(n.children as unknown[])
-          if (found) return found
-        }
-      }
-      return null
-    }
-    return c.json(find(snapshot.nodes))
-  }
-  return c.json(snapshot.nodes)
-})
-
-app.get('/styles', (c) => c.json(snapshot.styles))
-app.get('/variables', (c) => c.json(snapshot.variables))
-app.get('/selection', (c) => c.json(snapshot.selection))
-
-app.get('/asset', async (c) => {
-  const nodeId = c.req.query('nodeId')
-  if (!nodeId) return c.json(null, 400)
-
-  if (snapshot.assets.has(nodeId)) {
-    return c.json({ nodeId, data: snapshot.assets.get(nodeId) })
-  }
-
-  broadcast({ type: 'request_export', nodeId })
-
-  try {
-    const result = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('export timeout')), 15000)
-      pendingExports.set(nodeId, { resolve, reject, timer })
-    })
-    return c.json({ nodeId, data: result })
-  } catch {
-    return c.json(null, 404)
-  }
-})
-
 app.get('/health', (c) => c.json({ ok: true }))
 
-app.post('/snapshot', async (c) => {
-  const body = await c.req.json()
-  if (body.nodes) snapshot.nodes = body.nodes
-  if (body.styles) snapshot.styles = body.styles
-  if (body.variables) snapshot.variables = body.variables
-  if (body.selection) snapshot.selection = body.selection
-  return c.json({ ok: true })
+app.get('/rpc', async (c) => {
+  const command = c.req.query('command')
+  if (!command) return c.json({ error: 'command required' }, 400)
+
+  const fileKey = c.req.query('fileKey') || undefined
+  const paramsStr = c.req.query('params')
+  let params: Record<string, unknown> = {}
+  if (paramsStr) { try { params = JSON.parse(paramsStr) } catch { return c.json({ error: 'invalid params' }, 400) } }
+
+  const requestId = nextRequestId()
+  const conn = resolveConnection(fileKey)
+  if (!conn) return c.json({ error: 'No Figma plugin connected. Run the plugin in Figma first.' }, 503)
+
+  try {
+    const data = await sendToPlugin(conn, requestId, command, params)
+    return c.json(data)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 408)
+  }
 })
 
-app.post('/asset', async (c) => {
+app.post('/rpc', async (c) => {
   const body = await c.req.json()
-  if (body.nodeId) {
-    snapshot.assets.set(body.nodeId, body)
-    const p = pendingExports.get(body.nodeId)
-    if (p) {
-      clearTimeout(p.timer)
-      p.resolve(body)
-      pendingExports.delete(body.nodeId)
-    }
+  const command = body.command as string
+  if (!command) return c.json({ error: 'command required' }, 400)
+
+  const fileKey = body.fileKey as string | undefined
+  const params = (body.params as Record<string, unknown>) || {}
+  const requestId = nextRequestId()
+
+  const conn = resolveConnection(fileKey)
+  if (!conn) return c.json({ error: 'No Figma plugin connected. Run the plugin in Figma first.' }, 503)
+
+  try {
+    const data = await sendToPlugin(conn, requestId, command, params)
+    return c.json(data)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 408)
   }
-  return c.json({ ok: true })
 })
+
+function resolveConnection(fileKey?: string): Connection | undefined {
+  if (fileKey) return connections.get(fileKey)
+  if (connections.size === 1) return connections.values().next().value
+  if (connections.size === 0) return undefined
+  return undefined
+}
+
+function sendToPlugin(conn: Connection, requestId: string, command: string, params: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(requestId)
+      reject(new Error('Request timed out after 30s'))
+    }, 30000)
+    pending.set(requestId, { resolve, reject, timer })
+    conn.ws.send(JSON.stringify({ type: 'request', requestId, command, params }))
+  })
+}
 
 const port = 3000
 const server = serve({ fetch: app.fetch, port })
 
 const wss = new WebSocketServer({ noServer: true })
 
-wss.on('connection', (ws) => {
-  console.log('WebSocket connected')
-  clients.add(ws)
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url || '/', 'http://localhost')
+  const fileKey = url.searchParams.get('fileKey') || 'default'
+  const fileName = url.searchParams.get('fileName') || 'Unknown'
+
+  const existing = connections.get(fileKey)
+  if (existing) {
+    existing.ws.close()
+    connections.delete(fileKey)
+  }
+
+  const conn: Connection = { ws, fileKey, fileName, isAlive: true }
+  connections.set(fileKey, conn)
+  console.log(`Plugin connected: ${fileName} (${fileKey})`)
 
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString())
-      if (msg.type === 'snapshot' && msg.payload) {
-        if (msg.payload.nodes) snapshot.nodes = msg.payload.nodes
-        if (msg.payload.styles) snapshot.styles = msg.payload.styles
-        if (msg.payload.variables) snapshot.variables = msg.payload.variables
-        if (msg.payload.selection) snapshot.selection = msg.payload.selection
-      }
-      if (msg.type === 'asset' && msg.payload) {
-        snapshot.assets.set(msg.payload.nodeId, msg.payload)
-        const p = pendingExports.get(msg.payload.nodeId)
+      if (msg.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return }
+      if (msg.type === 'pong') { conn.isAlive = true; return }
+
+      if (msg.type === 'response') {
+        const p = pending.get(msg.requestId)
         if (p) {
           clearTimeout(p.timer)
-          p.resolve(msg.payload)
-          pendingExports.delete(msg.payload.nodeId)
+          if (msg.error) p.reject(new Error(msg.error))
+          else p.resolve(msg.data)
+          pending.delete(msg.requestId)
         }
       }
-    } catch {
-      // ignore malformed messages
-    }
+    } catch { }
   })
 
   ws.on('close', () => {
-    console.log('WebSocket disconnected')
-    clients.delete(ws)
+    connections.delete(fileKey)
+    console.log(`Plugin disconnected: ${fileName}`)
+    for (const [id, p] of pending) {
+      p.reject(new Error('Plugin disconnected'))
+      clearTimeout(p.timer)
+      pending.delete(id)
+    }
   })
 
-  ws.on('error', () => {
-    clients.delete(ws)
-  })
+  ws.on('error', () => { connections.delete(fileKey) })
 })
+
+const pingInterval = setInterval(() => {
+  for (const [key, conn] of connections) {
+    if (conn.isAlive === false) {
+      conn.ws.terminate()
+      connections.delete(key)
+      continue
+    }
+    conn.isAlive = false
+    conn.ws.send(JSON.stringify({ type: 'ping' }))
+  }
+}, 30000)
 
 server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
@@ -150,4 +154,7 @@ server.on('upgrade', (req, socket, head) => {
   })
 })
 
-console.log(`Proxy server running on http://localhost:${port}`)
+process.on('SIGINT', () => { clearInterval(pingInterval); process.exit() })
+process.on('SIGTERM', () => { clearInterval(pingInterval); process.exit() })
+
+console.log(`WebSocket proxy running on http://localhost:${port}`)

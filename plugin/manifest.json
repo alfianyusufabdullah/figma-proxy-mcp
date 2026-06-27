@@ -6,16 +6,15 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
-      "http://localhost:3000",
       "ws://localhost:3000"
     ],
-    "reasoning": "Connect to local proxy server for MCP integration",
+    "reasoning": "WebSocket connection to local proxy server for MCP integration",
     "devAllowedDomains": [
-      "http://localhost:3000",
       "ws://localhost:3000"
     ]
   },
-  "editorType": ["figma"],
+  "editorType": ["figma", "dev"],
+  "capabilities": ["inspect"],
   "menu": [
     {"name": "Start Proxy", "command": "start"}
   ]

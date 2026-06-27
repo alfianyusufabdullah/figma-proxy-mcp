@@ -3,13 +3,14 @@
 ## Architecture
 
 ```
-Figma Plugin ──postMessage──► UI iframe ──WebSocket──► Proxy Server (Hono) ◄──HTTP── MCP Server
+AI Agent ──MCP/SSE──► MCP Server ──HTTP/JSON──► WebSocket Proxy (Hono) ◄──WS── Figma Plugin
 ```
 
 - **Figma Plugin (code.ts)**: runs in Figma sandbox — full access to `figma.*` API but NO browser APIs (no WebSocket, no DOM, no `setTimeout`)
 - **UI iframe (ui.html)**: runs in hidden `<iframe>` — full browser APIs but NO Figma access. Used for WebSocket + keep-alive
 - Comm between sandbox ↔ iframe: `figma.ui.postMessage()` ↔ `window.onmessage`
-- `figma.showUI(__html__, { visible: false })` — UI hidden, keeps plugin alive while user works
+- **Request-response protocol**: MCP server sends command via `POST /rpc` → WebSocket proxy forwards to plugin → plugin processes → response flows back. No polling.
+- Connections are tracked by `fileKey` — supports multi-file via optional `fileKey` param
 
 ## Key Constraints (Figma Plugin)
 
@@ -37,11 +38,12 @@ figma-proxy-mcp/
 ├── plugin/             # Figma plugin (TypeScript, build with esbuild)
 │   ├── manifest.json
 │   ├── code.ts         # sandbox — reads document, handles plugin lifecycle
+│   ├── serializer.ts   # comprehensive node/ paint/ effect serialization
 │   └── ui.html         # iframe — WebSocket to proxy, setInterval triggers
 ├── websocket/          # WebSocket proxy server (Node.js + Hono)
-│   └── index.ts
+│   └── src/index.ts
 ├── mcp-server/         # MCP server (TypeScript + @modelcontextprotocol/sdk)
-│   └── index.ts
+│   └── src/index.ts
 ├── AGENTS.md
 └── PLAN.md
 ```
@@ -146,11 +148,10 @@ figma.ui.postMessage({ type: 'init' });
 ## Data Flow
 
 1. Plugin starts → hidden UI initializes WebSocket → sends `ready`
-2. UI triggers `collect` every N seconds via postMessage
-3. Sandbox reads current selection / full page → serializes → sends back via postMessage
-4. UI forwards data to WebSocket Server via WebSocket
-5. MCP Server queries WebSocket Server on demand
-6. WebSocket Server caches latest snapshot, serves MCP requests
+2. Each AI tool call is sent as command via MCP → `POST /rpc` → WebSocket → plugin
+3. Plugin processes command (get_document, get_selection, etc.) → serializes result
+4. Response flows back through same path
+5. Supports multi-file via optional `fileKey` param
 
 ## Testing
 

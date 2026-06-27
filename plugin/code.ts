@@ -1,111 +1,167 @@
-type SerializedNode = Record<string, unknown>
+import { serializeNode } from './serializer'
 
-function serializeNode(node: SceneNode): SerializedNode {
-  const data: SerializedNode = {
-    id: node.id,
-    name: node.name,
-    type: node.type,
-    visible: node.visible,
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+function arrayToBase64(bytes: Uint8Array): string {
+  let result = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2]
+    result += B64[b0 >> 2] + B64[((b0 & 3) << 4) | (b1 >> 4)] +
+      (i + 1 < bytes.length ? B64[((b1 & 15) << 2) | (b2 >> 6)] : '=') +
+      (i + 2 < bytes.length ? B64[b2 & 63] : '=')
   }
-
-  if ('opacity' in node) data.opacity = node.opacity
-  if ('locked' in node) data.locked = node.locked
-  if ('rotation' in node) data.rotation = node.rotation
-  if ('absoluteBoundingBox' in node) data.boundingBox = node.absoluteBoundingBox
-  if ('fills' in node) data.fills = (node as GeometryMixin).fills
-  if ('strokes' in node) data.strokes = (node as GeometryMixin).strokes
-  if ('effects' in node) data.effects = (node as BlendMixin).effects
-  if ('characters' in node) data.characters = (node as TextNode).characters
-  if ('fontName' in node) data.fontName = (node as TextNode).fontName
-  if ('fontSize' in node) data.fontSize = (node as TextNode).fontSize
-
-  if ('layoutMode' in node) {
-    data.layoutMode = (node as FrameNode).layoutMode
-    data.layoutAlign = (node as FrameNode).layoutAlign
-    data.layoutGrow = (node as FrameNode).layoutGrow
-    data.itemSpacing = (node as FrameNode).itemSpacing
-    data.primaryAxisSizingMode = (node as FrameNode).primaryAxisSizingMode
-    data.counterAxisSizingMode = (node as FrameNode).counterAxisSizingMode
-    data.paddingTop = (node as FrameNode).paddingTop
-    data.paddingRight = (node as FrameNode).paddingRight
-    data.paddingBottom = (node as FrameNode).paddingBottom
-    data.paddingLeft = (node as FrameNode).paddingLeft
-  }
-
-  if ('componentPropertyDefinitions' in node) {
-    data.componentPropertyDefinitions = (node as InstanceNode).componentPropertyDefinitions
-  }
-  if ('variantProperties' in node) {
-    data.variantProperties = (node as ComponentNode).variantProperties
-  }
-
-  if ('children' in node && node.children.length > 0) {
-    data.children = node.children.map(serializeNode)
-  }
-
-  return data
+  return result
 }
 
-async function collectCurrentPage() {
-  const page = figma.currentPage
-  const selection = page.selection.map(serializeNode)
+let fileKey: string = ''
 
-  const nodes: SerializedNode[] = []
-  for (const child of page.children) {
-    nodes.push(serializeNode(child))
-  }
-
-  const paintStyles = await figma.getLocalPaintStylesAsync()
-  const textStyles = await figma.getLocalTextStylesAsync()
-  const effectStyles = await figma.getLocalEffectStylesAsync()
-  const gridStyles = await figma.getLocalGridStylesAsync()
-
-  const styles = [
-    ...paintStyles.map((s) => ({ type: 'PAINT', name: s.name, key: s.key, id: s.id })),
-    ...textStyles.map((s) => ({ type: 'TEXT', name: s.name, key: s.key, id: s.id })),
-    ...effectStyles.map((s) => ({ type: 'EFFECT', name: s.name, key: s.key, id: s.id })),
-    ...gridStyles.map((s) => ({ type: 'GRID', name: s.name, key: s.key, id: s.id })),
-  ]
-
-  return { nodes, styles, variables: [], selection }
-}
-
-async function exportNodeAsAsset(nodeId: string) {
-  try {
-    const node = await figma.getNodeByIdAsync(nodeId)
-    if (!node || !('exportAsync' in node)) return null
-
-    const bytes = await (node as SceneNode).exportAsync({
-      format: 'PNG',
-      constraint: { type: 'SCALE', value: 2 },
-    })
-
-    const svg = await (node as SceneNode).exportAsync({ format: 'SVG_STRING' })
-
-    return {
-      pngBytes: Array.from(bytes),
-      svg,
+async function getFileKey(): Promise<string> {
+  if (fileKey) return fileKey
+  if (figma.fileKey) {
+    fileKey = figma.fileKey
+  } else {
+    const stored = await figma.clientStorage.getAsync('mcp_fileKey')
+    if (stored) {
+      fileKey = stored as string
+    } else {
+      fileKey = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      await figma.clientStorage.setAsync('mcp_fileKey', fileKey)
     }
-  } catch (_e) {
-    return null
+  }
+  return fileKey
+}
+
+figma.showUI(__html__, { width: 320, height: 200 })
+
+figma.on('documentchange', () => sendStatus())
+
+async function sendStatus() {
+  const key = await getFileKey()
+  figma.ui.postMessage({
+    type: 'plugin-status',
+    payload: { fileKey: key, fileName: figma.root.name, selectionCount: figma.currentPage.selection.length },
+  })
+}
+
+const noop = () => {}
+
+async function handleRequest(requestId: string, command: string, params: Record<string, unknown>) {
+  try {
+    let data: unknown = null
+    switch (command) {
+      case 'get_document': {
+        const page = figma.currentPage
+        const depth = (params.depth as number) ?? -1
+        const nodes = page.children
+          .filter((c) => c.visible !== false)
+          .map((c) => serializeNode(c as SceneNode, depth))
+        data = { pageName: page.name, nodes }
+        break
+      }
+      case 'get_selection': {
+        const selection = figma.currentPage.selection.map((n) => serializeNode(n))
+        data = { selection }
+        break
+      }
+      case 'get_node': {
+        const nodeId = params.nodeId as string
+        if (!nodeId) throw new Error('nodeId is required')
+        const node = await figma.getNodeByIdAsync(nodeId)
+        if (!node) throw new Error(`Node not found: ${nodeId}`)
+        data = serializeNode(node as SceneNode)
+        break
+      }
+      case 'get_styles': {
+        const [paint, text, effect, grid] = await Promise.all([
+          figma.getLocalPaintStylesAsync(),
+          figma.getLocalTextStylesAsync(),
+          figma.getLocalEffectStylesAsync(),
+          figma.getLocalGridStylesAsync(),
+        ])
+        data = {
+          paints: paint.map((s) => ({ id: s.id, name: s.name, key: s.key, type: 'PAINT' })),
+          texts: text.map((s) => ({ id: s.id, name: s.name, key: s.key, type: 'TEXT' })),
+          effects: effect.map((s) => ({ id: s.id, name: s.name, key: s.key, type: 'EFFECT' })),
+          grids: grid.map((s) => ({ id: s.id, name: s.name, key: s.key, type: 'GRID' })),
+        }
+        break
+      }
+      case 'get_metadata': {
+        data = {
+          fileName: figma.root.name,
+          currentPage: figma.currentPage.name,
+          pages: figma.root.children.map((p) => ({ id: p.id, name: p.name })),
+          fileKey: await getFileKey(),
+        }
+        break
+      }
+      case 'get_design_context': {
+        const page = figma.currentPage
+        const depth = (params.depth as number) ?? 2
+        const targetIds = params.nodeIds as string[] | undefined
+        if (targetIds && targetIds.length > 0) {
+          const nodes = await Promise.all(targetIds.map((id) => figma.getNodeByIdAsync(id)))
+          data = nodes
+            .filter(Boolean)
+            .map((n) => serializeNode(n as SceneNode, depth))
+        } else {
+          data = page.children
+            .filter((c) => c.visible !== false)
+            .map((c) => serializeNode(c as SceneNode, depth))
+        }
+        break
+      }
+      case 'get_variables': {
+        const collections = await figma.variables.getLocalVariableCollectionsAsync()
+        data = await Promise.all(
+          collections.map(async (c) => ({
+            id: c.id,
+            name: c.name,
+            modes: c.modes.map((m) => ({ modeId: m.modeId, name: m.name })),
+            variables: c.variableIds.map((vId) => ({
+              id: vId,
+              name: '',
+              resolvedType: '',
+            })),
+          }))
+        )
+        break
+      }
+      case 'get_screenshot': {
+        const nodeIds = (params.nodeIds || params.nodeId ? [params.nodeId] : figma.currentPage.selection.map((n) => n.id)) as string[]
+        const format = (params.format as string) || 'PNG'
+        const scale = (params.scale as number) || 2
+        const results: Array<{ nodeId: string; data: string; format: string }> = []
+        for (const id of nodeIds) {
+          const node = await figma.getNodeByIdAsync(id)
+          if (!node || !('exportAsync' in node)) continue
+          try {
+            const fmt = format === 'SVG' ? 'SVG_STRING' : (format === 'PDF' ? 'PDF' : 'PNG') as 'PNG' | 'SVG_STRING' | 'PDF'
+            if (fmt === 'SVG_STRING') {
+              results.push({ nodeId: id, data: await (node as SceneNode).exportAsync({ format: 'SVG_STRING' }), format: 'SVG' })
+            } else {
+              const bytes = await (node as SceneNode).exportAsync({ format: fmt as 'PNG' | 'PDF', constraint: { type: 'SCALE', value: scale } })
+              results.push({ nodeId: id, data: arrayToBase64(new Uint8Array(bytes)), format })
+            }
+          } catch { noop() }
+        }
+        data = { screenshots: results }
+        break
+      }
+      default:
+        throw new Error(`Unknown command: ${command}`)
+    }
+    figma.ui.postMessage({ type: 'response', requestId, data })
+  } catch (e) {
+    figma.ui.postMessage({ type: 'response', requestId, error: (e as Error).message })
   }
 }
 
-function strip(obj: unknown): unknown {
-  return JSON.parse(JSON.stringify(obj))
-}
-
-figma.showUI(__html__, { width: 320, height: 220 })
-
-figma.ui.onmessage = async (msg) => {
-  if (msg.type === 'collect') {
-    const data = await collectCurrentPage()
-    figma.ui.postMessage({ type: 'snapshot', payload: strip(data) })
+figma.ui.onmessage = (msg) => {
+  if (msg.type === 'ui-ready') {
+    sendStatus()
   }
-
-  if (msg.type === 'export') {
-    const result = await exportNodeAsAsset(msg.nodeId)
-    figma.ui.postMessage({ type: 'asset', payload: Object.assign({ nodeId: msg.nodeId }, result) })
+  if (msg.type === 'request') {
+    handleRequest(msg.requestId, msg.command, msg.params || {})
   }
 }
-
