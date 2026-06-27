@@ -68,7 +68,7 @@ app.post('/rpc', async (c) => {
 })
 
 function resolveConnection(fileKey?: string): Connection | undefined {
-  if (fileKey) return connections.get(fileKey)
+  if (fileKey && connections.has(fileKey)) return connections.get(fileKey)
   if (connections.size === 1) return connections.values().next().value
   if (connections.size === 0) return undefined
   return undefined

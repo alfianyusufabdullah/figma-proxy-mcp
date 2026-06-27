@@ -93,6 +93,7 @@
     ws.onmessage = function (event) {
       try {
         var msg = JSON.parse(event.data)
+        if (msg.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return }
         if (msg.type === 'pong') return
 
         if (msg.type === 'request') {
