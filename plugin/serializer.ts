@@ -1,3 +1,8 @@
+export interface SerializeOptions {
+  depth?: number
+  maxNodes?: number
+}
+
 export interface SerializedNode {
   id: string
   name: string
@@ -10,7 +15,13 @@ export interface SerializedNode {
   childCount?: number
 }
 
-export function serializeNode(node: SceneNode, depth = -1): SerializedNode {
+let nodeCount = 0
+let didTruncate = false
+
+export function resetCount() { nodeCount = 0; didTruncate = false }
+export function wasTruncated(): boolean { return didTruncate }
+
+export function serializeNode(node: SceneNode, opts?: SerializeOptions): SerializedNode {
   const data: SerializedNode = {
     id: node.id,
     name: node.name,
@@ -77,13 +88,29 @@ export function serializeNode(node: SceneNode, depth = -1): SerializedNode {
 
   if (Object.keys(styles).length > 0) data.styles = styles
 
+  const maxNodes = opts?.maxNodes ?? 2000
+  const depth = opts?.depth ?? -1
+
   if ('children' in node && node.children.length > 0) {
     if (depth === 0) {
       data.childCount = node.children.length
     } else {
-      data.children = node.children
-        .filter((c) => c.visible !== false)
-        .map((c) => serializeNode(c as SceneNode, depth > 0 ? depth - 1 : -1))
+      const visible = node.children.filter((c) => c.visible !== false)
+      const limited: SceneNode[] = []
+      for (const c of visible) {
+        if (nodeCount >= maxNodes) {
+          didTruncate = true
+          break
+        }
+        limited.push(c as SceneNode)
+      }
+      data.children = limited.map((c) => {
+        nodeCount++
+        return serializeNode(c, { maxNodes, depth: depth > 0 ? depth - 1 : -1 })
+      })
+      if (limited.length < visible.length) {
+        data.childCount = visible.length
+      }
     }
   }
 

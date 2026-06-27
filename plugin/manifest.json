@@ -13,6 +13,7 @@
       "ws://localhost:3000"
     ]
   },
+  "enablePrivatePluginApi": true,
   "editorType": ["figma", "dev"],
   "capabilities": ["inspect"],
   "menu": [
