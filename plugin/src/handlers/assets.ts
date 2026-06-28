@@ -65,3 +65,29 @@ export async function handleGetCss(params: Record<string, unknown>): Promise<unk
   if (!node || !('getCSSAsync' in node)) throw new Error(`Node not found or no CSS: ${nodeId}`)
   return { nodeId, css: await (node as SceneNode).getCSSAsync() }
 }
+
+export async function handleGetSvg(params: Record<string, unknown>): Promise<unknown> {
+  const nodeIds: string[] = params.nodeIds
+    ? (params.nodeIds as string[])
+    : params.nodeId
+      ? [params.nodeId as string]
+      : figma.currentPage.selection.map((n) => n.id)
+
+  if (nodeIds.length === 0) throw new Error('No nodes specified and nothing is selected')
+
+  const results: Array<{ nodeId: string; name: string; type: string; svg: string }> = []
+  const errors: Array<{ nodeId: string; error: string }> = []
+
+  for (const id of nodeIds) {
+    const node = await figma.getNodeByIdAsync(id)
+    if (!node) { errors.push({ nodeId: id, error: 'Node not found' }); continue }
+    if (!('exportAsync' in node)) { errors.push({ nodeId: id, error: `Node type ${node.type} cannot be exported` }); continue }
+    try {
+      const svg = await (node as SceneNode).exportAsync({ format: 'SVG_STRING' })
+      results.push({ nodeId: id, name: node.name, type: node.type, svg })
+    } catch (e) {
+      errors.push({ nodeId: id, error: (e as Error).message })
+    }
+  }
+  return { svgs: results, errors }
+}

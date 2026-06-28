@@ -1,5 +1,5 @@
 export { handleGetDocument, handleGetSelection, handleGetNode, handleGetStyles, handleGetMetadata, handleGetDesignContext } from './document'
-export { handleGetScreenshot, handleGetImage, handleGetCss } from './assets'
+export { handleGetScreenshot, handleGetImage, handleGetCss, handleGetSvg } from './assets'
 export { handleGetFonts, handleGetColors, handleFindTextNodes, handleGetTextContent, handleFindPlaceholders } from './text-search'
 export { handleGetTextSegments, handleDetectTextOverflow, handleCheckTextConsistency, handleGetTypographyTokens } from './text-analysis'
 export { handleGetVariables, handleGetVariableTokens, handleGetNodeVariableBindings } from './variables'
