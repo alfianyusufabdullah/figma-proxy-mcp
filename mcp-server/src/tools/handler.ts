@@ -192,6 +192,36 @@ export function registerToolHandler(srv: Server): void {
         case 'get_exportable_nodes':
           data = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey)
           break
+        case 'export_section_assets': {
+          const outputDir = parsed.outputDir as string
+          const format = (parsed.format as string | undefined) ?? 'PNG'
+          const scale = (parsed.scale as number | undefined) ?? 2
+          const discovery = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey) as {
+            exportableNodes: Array<{ nodeId: string; name: string }>
+          }
+          mkdirSync(outputDir, { recursive: true })
+          const exported: Array<{ nodeId: string; name: string; savedTo: string }> = []
+          const errors: Array<{ nodeId: string; name: string; error: string }> = []
+          for (const node of discovery.exportableNodes) {
+            try {
+              const result = await rpc('get_screenshot', { nodeId: node.nodeId, format, scale }, fileKey) as {
+                screenshots: Array<{ nodeId: string; data: string; format: string }>
+              }
+              const s = result.screenshots[0]
+              if (!s) continue
+              const ext = format === 'SVG' ? 'svg' : format === 'PDF' ? 'pdf' : format === 'JPG' ? 'jpg' : 'png'
+              const safeName = node.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()
+              const filePath = join(outputDir, `${safeName}.${ext}`)
+              if (format === 'SVG') writeFileSync(filePath, s.data, 'utf8')
+              else writeFileSync(filePath, Buffer.from(s.data, 'base64'))
+              exported.push({ nodeId: node.nodeId, name: node.name, savedTo: filePath })
+            } catch (e) {
+              errors.push({ nodeId: node.nodeId, name: node.name, error: (e as Error).message })
+            }
+          }
+          data = { exported, errors, outputDir }
+          break
+        }
         case 'get_node_full': {
           let maxNodes = 500
           let result: unknown

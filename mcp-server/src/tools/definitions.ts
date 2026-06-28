@@ -367,4 +367,19 @@ export const toolList = [
       },
     },
   },
+  {
+    name: 'export_section_assets',
+    description: 'Export all image/exportable assets within a section directly to disk — no base64, no Python scripts. Returns file paths. Combine with get_exportable_nodes to preview before exporting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Frame or section node ID to export assets from' },
+        outputDir: { type: 'string', description: 'Absolute directory path on the MCP host. Files named by node name.' },
+        format: { type: 'string', enum: ['PNG', 'SVG', 'JPG', 'PDF'], description: 'Export format (default PNG)' },
+        scale: { type: 'number', description: 'Scale factor 0.5–4 (default 2)' },
+        fileKey: { type: 'string', description: 'File key (omit if single file)' },
+      },
+      required: ['nodeId', 'outputDir'],
+    },
+  },
 ]
