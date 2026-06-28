@@ -10,7 +10,7 @@ import {
   handleExportJson, handleToHtml, handleToHtmlPage,
 } from './handlers'
 
-figma.showUI(__html__, { width: 320, height: 200 })
+figma.showUI(__html__, { width: 320, height: 230 })
 
 figma.on('selectionchange', () => { try { sendStatus() } catch (_e) {} })
 
@@ -71,9 +71,18 @@ async function handleRequest(requestId: string, command: string, params: Record<
   }
 }
 
-figma.ui.onmessage = (msg) => {
+figma.ui.onmessage = async (msg) => {
   if (msg.type === 'ui-ready') {
+    try {
+      const wsUrl = await figma.clientStorage.getAsync('wsUrl')
+      figma.ui.postMessage({ type: 'ws_url', url: wsUrl || 'ws://localhost:3000' })
+    } catch (_e) {
+      figma.ui.postMessage({ type: 'ws_url', url: 'ws://localhost:3000' })
+    }
     try { sendStatus() } catch (_e) {}
+  }
+  if (msg.type === 'save_ws_url') {
+    try { await figma.clientStorage.setAsync('wsUrl', msg.url) } catch (_e) {}
   }
   if (msg.type === 'request') {
     handleRequest(msg.requestId, msg.command, msg.params || {})
