@@ -5,15 +5,53 @@ function assertEditor() {
   if (figma.editorType === 'dev') throw new Error('Write tools are not available in Dev Mode')
 }
 
+async function loadAllFonts(tn: TextNode): Promise<void> {
+  if (tn.fontName !== figma.mixed) {
+    await figma.loadFontAsync(tn.fontName as FontName)
+    return
+  }
+  const len = tn.characters.length
+  if (len === 0) {
+    await figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
+    return
+  }
+  const seen = new Map<string, FontName>()
+  for (let i = 0; i < len; i++) {
+    const fn = tn.getRangeFontName(i, i + 1) as FontName
+    const key = `${fn.family}::${fn.style}`
+    if (!seen.has(key)) seen.set(key, fn)
+  }
+  await Promise.all([...seen.values()].map(fn => figma.loadFontAsync(fn)))
+}
+
 export async function handleSetTextContent(params: Record<string, unknown>): Promise<unknown> {
   assertEditor()
   const nodeId = params.nodeId as string
   const text = params.text as string
   if (!nodeId || text === undefined) throw new Error('nodeId and text are required')
+
   const node = await figma.getNodeByIdAsync(nodeId)
-  if (!node || node.type !== 'TEXT') throw new Error(`Text node not found: ${nodeId}`)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+
+  if (node.type !== 'TEXT') {
+    if ('children' in node) {
+      const textChildren = (node as ChildrenMixin).findAll(n => n.type === 'TEXT') as TextNode[]
+      if (textChildren.length > 0) {
+        const preview = textChildren.slice(0, 5)
+          .map(n => `"${n.name}" (${n.id})${n.characters ? ': "' + n.characters.slice(0, 30) + '"' : ''}`)
+          .join(', ')
+        throw new Error(
+          `Node ${nodeId} is ${node.type}, not TEXT. ` +
+          `Found ${textChildren.length} text node(s) inside: ${preview}. ` +
+          `Call set_text_content with one of those IDs.`
+        )
+      }
+    }
+    throw new Error(`Node ${nodeId} is ${node.type}, not TEXT. Use find_text_nodes to locate text nodes.`)
+  }
+
   const tn = node as TextNode
-  await figma.loadFontAsync(tn.fontName as FontName)
+  await loadAllFonts(tn)
   tn.characters = text
   return serializeNode(tn, { maxNodes: 100 })
 }
