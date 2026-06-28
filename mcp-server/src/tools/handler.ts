@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { writeFileSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { rpc } from '../rpc'
@@ -62,15 +64,50 @@ export function registerToolHandler(srv: Server): void {
         case 'get_variables':
           data = await rpc('get_variables', {}, fileKey)
           break
-        case 'get_screenshot':
-          data = await rpc('get_screenshot', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId, format: parsed.format ?? 'PNG', scale: parsed.scale ?? 2 }, fileKey)
+        case 'get_screenshot': {
+          const outputPath = parsed.outputPath as string | undefined
+          const outputDir = parsed.outputDir as string | undefined
+          const nodeIds = parsed.nodeIds as string[] | undefined
+          if (!outputDir && !outputPath && nodeIds && nodeIds.length > 3) {
+            throw new Error(`Batch too large: ${nodeIds.length} nodes without outputDir. Max 3 per call, or provide outputDir to write all to disk.`)
+          }
+          data = await rpc('get_screenshot', { nodeIds, nodeId: parsed.nodeId, format: parsed.format ?? 'PNG', scale: parsed.scale ?? 2 }, fileKey)
+          if (outputPath || outputDir) {
+            const { screenshots } = data as { screenshots: Array<{ nodeId: string; data: string; format: string }> }
+            if (outputPath && screenshots.length > 1) throw new Error('outputPath is for single-node exports. Use outputDir for multiple nodes.')
+            const saved = screenshots.map(s => {
+              const ext = s.format === 'SVG' ? 'svg' : s.format === 'PDF' ? 'pdf' : s.format === 'JPG' ? 'jpg' : 'png'
+              const filePath = outputPath ?? join(outputDir!, `${s.nodeId.replace(/:/g, '-')}.${ext}`)
+              mkdirSync(dirname(filePath), { recursive: true })
+              if (s.format === 'SVG') writeFileSync(filePath, s.data, 'utf8')
+              else writeFileSync(filePath, Buffer.from(s.data, 'base64'))
+              return { nodeId: s.nodeId, savedTo: filePath, format: s.format }
+            })
+            data = { saved }
+          }
           break
+        }
         case 'get_image':
           data = await rpc('get_image', { nodeId: parsed.nodeId }, fileKey)
           break
-        case 'get_svg':
+        case 'get_svg': {
+          const outputPath = parsed.outputPath as string | undefined
+          const outputDir = parsed.outputDir as string | undefined
           data = await rpc('get_svg', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey)
+          if (outputPath || outputDir) {
+            const { svgs } = data as { svgs: Array<{ nodeId: string; name: string; svg: string }> }
+            if (outputPath && svgs.length > 1) throw new Error('outputPath is for single-node exports. Use outputDir for multiple nodes.')
+            const saved = svgs.map(s => {
+              const safeName = s.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()
+              const filePath = outputPath ?? join(outputDir!, `${safeName}.svg`)
+              mkdirSync(dirname(filePath), { recursive: true })
+              writeFileSync(filePath, s.svg, 'utf8')
+              return { nodeId: s.nodeId, name: s.name, savedTo: filePath }
+            })
+            data = { saved }
+          }
           break
+        }
         case 'get_css':
           data = await rpc('get_css', { nodeId: parsed.nodeId }, fileKey)
           break
