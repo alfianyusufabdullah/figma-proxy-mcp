@@ -1,9 +1,17 @@
 name: Release Figma Plugin
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   release:
@@ -14,11 +22,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Bump version
+        id: version
+        working-directory: plugin
+        run: |
+          npm version ${{ inputs.bump }} --no-git-tag-version
+          echo "value=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Commit and tag
+        run: |
+          git add plugin/package.json
+          git commit -m "chore(release): bump plugin version to v${{ steps.version.outputs.value }}"
+          git tag v${{ steps.version.outputs.value }}
+          git push origin HEAD:main
+          git push origin v${{ steps.version.outputs.value }}
 
       - name: Install dependencies
         working-directory: plugin
@@ -30,7 +60,7 @@ jobs:
 
       - name: Create release archive
         run: |
-          zip -j figma-proxy-plugin-${{ github.ref_name }}.zip \
+          zip -j figma-proxy-plugin-v${{ steps.version.outputs.value }}.zip \
             plugin/manifest.json \
             plugin/ui.html \
             plugin/dist/code.js
@@ -38,5 +68,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: figma-proxy-plugin-${{ github.ref_name }}.zip
+          tag_name: v${{ steps.version.outputs.value }}
+          name: v${{ steps.version.outputs.value }}
+          files: figma-proxy-plugin-v${{ steps.version.outputs.value }}.zip
           generate_release_notes: true
