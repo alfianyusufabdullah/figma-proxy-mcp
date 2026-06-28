@@ -8,5 +8,6 @@
   "devDependencies": {
     "@figma/plugin-typings": "^1.130.0",
     "esbuild": "^0.24.0"
-  }
+  },
+  "version": "0.0.1"
 }
