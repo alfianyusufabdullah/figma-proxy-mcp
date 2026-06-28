@@ -20,7 +20,7 @@ Design handoff is slow because engineers have to manually translate Figma specs 
 ```
 AI Agent (Claude, Cursor, etc.)
         |
-        | MCP (SSE)
+        | MCP (Streamable HTTP)
         v
   MCP Server :3001          ← translates MCP tool calls to RPC
         |
@@ -72,7 +72,13 @@ npm run dev
 cd mcp-server
 npm install
 npm run dev
-# Running on http://localhost:3001/sse
+# Running on http://localhost:3001/mcp
+```
+
+Optionally set `MCP_API_KEY` to require a bearer token:
+
+```bash
+MCP_API_KEY=mysecret npm run dev
 ```
 
 ### 3. Figma Plugin
@@ -99,18 +105,33 @@ The plugin connects to the WebSocket proxy automatically. The status dot turns g
 
 Add the MCP server to your AI client config:
 
+**Claude Code CLI** — add to your project's `.mcp.json` or run:
+```bash
+claude mcp add figma --transport http http://localhost:3001/mcp
+```
+
+For a tunneled remote server with API key:
+```bash
+claude mcp add figma --transport http https://your-tunnel.example.com/mcp \
+  --header "Authorization: Bearer YOUR_API_KEY"
+```
+
+**Claude.ai web** — go to Settings → Integrations → Add MCP server:
+- URL: `https://your-tunnel.example.com/mcp`
+- If API key is set, add header `Authorization: Bearer YOUR_API_KEY`
+
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
     "figma": {
-      "url": "http://localhost:3001/sse"
+      "url": "http://localhost:3001/mcp"
     }
   }
 }
 ```
 
-**Cursor / Windsurf**: Add `http://localhost:3001/sse` as an SSE MCP server in settings.
+**Cursor / Windsurf**: Add `http://localhost:3001/mcp` as an MCP server in settings.
 
 ---
 
@@ -133,7 +154,8 @@ docker run -p 3001:3001 -e PROXY_URL=http://host.docker.internal:3000 figma-prox
 | Variable | Default | Description |
 |---|---|---|
 | `PROXY_URL` | `http://localhost:3000` | URL of the WebSocket proxy (used by mcp-server) |
-| `MCP_PORT` | `3001` | Port for the MCP SSE server |
+| `MCP_PORT` | `3001` | Port for the MCP server |
+| `MCP_API_KEY` | _(unset)_ | If set, all `/mcp` requests must include `Authorization: Bearer <key>` |
 
 ---
 
