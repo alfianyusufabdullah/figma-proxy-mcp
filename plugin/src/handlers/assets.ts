@@ -91,3 +91,47 @@ export async function handleGetSvg(params: Record<string, unknown>): Promise<unk
   }
   return { svgs: results, errors }
 }
+
+export async function handleGetExportableNodes(params: Record<string, unknown>): Promise<unknown> {
+  const nodeId = params.nodeId as string | undefined
+
+  type ExportableEntry = {
+    nodeId: string; name: string; type: string
+    exportSettings: Array<{ format: string; suffix: string; constraint?: unknown }>
+    width: number; height: number; hasImageFill: boolean
+  }
+  const results: ExportableEntry[] = []
+
+  const hasImgFill = (n: BaseNode): boolean => {
+    if (!('fills' in n)) return false
+    const fills = (n as GeometryMixin).fills
+    return fills !== figma.mixed && Array.isArray(fills) && fills.some((f: Paint) => f.type === 'IMAGE')
+  }
+
+  const walk = (n: BaseNode): void => {
+    const es = (n as any).exportSettings as Array<{ format: string; suffix: string; constraint?: unknown }> | undefined
+    const hasEs = Array.isArray(es) && es.length > 0
+    const imgFill = hasImgFill(n)
+    if ((hasEs || imgFill) && 'width' in n) {
+      results.push({
+        nodeId: n.id, name: n.name, type: n.type,
+        exportSettings: hasEs ? es! : [],
+        width: (n as any).width ?? 0, height: (n as any).height ?? 0,
+        hasImageFill: imgFill,
+      })
+    }
+    if ('children' in n) {
+      for (const child of (n as ChildrenMixin).children) walk(child)
+    }
+  }
+
+  if (nodeId) {
+    const node = await figma.getNodeByIdAsync(nodeId)
+    if (!node) throw new Error(`Node not found: ${nodeId}`)
+    walk(node)
+  } else {
+    for (const child of figma.currentPage.children) walk(child)
+  }
+
+  return { exportableNodes: results }
+}

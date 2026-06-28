@@ -356,4 +356,15 @@ export const toolList = [
     description: 'Get all local text styles with full typography properties',
     inputSchema: { type: 'object', properties: { fileKey: { type: 'string' } } },
   },
+  {
+    name: 'get_exportable_nodes',
+    description: 'Find all nodes in a section that have export settings or image fills — the quick way to discover which assets to export before calling get_screenshot or export_section_assets',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Scope to this frame/section subtree. Omit to search the current page.' },
+        fileKey: { type: 'string', description: 'File key (omit if single file)' },
+      },
+    },
+  },
 ]

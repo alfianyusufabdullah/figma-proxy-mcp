@@ -47,4 +47,5 @@ export const toolSchemas = {
   find_placeholders: z.object({ fileKey: FileKeySchema }),
   check_text_consistency: z.object({ group_by: z.string().optional(), page: z.string().optional(), fileKey: FileKeySchema }),
   get_typography_tokens: z.object({ fileKey: FileKeySchema }),
+  get_exportable_nodes: z.object({ nodeId: NodeIdSchema.optional(), fileKey: FileKeySchema }),
 }

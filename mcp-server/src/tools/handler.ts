@@ -189,6 +189,9 @@ export function registerToolHandler(srv: Server): void {
         case 'get_typography_tokens':
           data = await rpc('get_typography_tokens', {}, fileKey)
           break
+        case 'get_exportable_nodes':
+          data = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey)
+          break
         case 'get_node_full': {
           let maxNodes = 500
           let result: unknown

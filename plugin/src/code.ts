@@ -1,7 +1,7 @@
 import { strip, getFileKey } from './utils'
 import {
   handleGetDocument, handleGetSelection, handleGetNode, handleGetStyles, handleGetMetadata, handleGetDesignContext,
-  handleGetScreenshot, handleGetImage, handleGetCss, handleGetSvg,
+  handleGetScreenshot, handleGetImage, handleGetCss, handleGetSvg, handleGetExportableNodes,
   handleGetFonts, handleGetColors, handleFindTextNodes, handleGetTextContent, handleGetTextSegments, handleDetectTextOverflow, handleFindPlaceholders, handleCheckTextConsistency, handleGetTypographyTokens,
   handleGetVariables, handleGetVariableTokens, handleGetNodeVariableBindings,
   handleGetLayoutSpec, handleGetResponsiveBehavior, handleGetCornerRadii, handleGetStrokeSpec, handleGetEffectSpec,
@@ -37,6 +37,7 @@ async function handleRequest(requestId: string, command: string, params: Record<
       case 'get_image':                  data = await handleGetImage(params); break
       case 'get_css':                    data = await handleGetCss(params); break
       case 'get_svg':                    data = await handleGetSvg(params); break
+      case 'get_exportable_nodes':       data = await handleGetExportableNodes(params); break
       case 'get_fonts':                  data = await handleGetFonts(params); break
       case 'get_colors':                 data = await handleGetColors(params); break
       case 'find_text_nodes':            data = await handleFindTextNodes(params); break
