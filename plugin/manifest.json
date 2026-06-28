@@ -5,13 +5,9 @@
   "ui": "ui.html",
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": [
-      "ws://localhost:3000"
-    ],
-    "reasoning": "WebSocket connection to local proxy server for MCP integration",
-    "devAllowedDomains": [
-      "ws://localhost:3000"
-    ]
+    "allowedDomains": ["*"],
+    "reasoning": "WebSocket connection to a user-configurable proxy server — host and port are set at runtime by the user inside the plugin",
+    "devAllowedDomains": ["*"]
   },
   "enablePrivatePluginApi": true,
   "editorType": ["figma", "dev"],
