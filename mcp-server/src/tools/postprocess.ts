@@ -83,6 +83,16 @@ function detectPatterns(nodes: AnyNode[]): string[] {
 
 export function postprocess(toolName: string, data: unknown): string {
   const json = JSON.stringify(data, null, 2)
+
+  if (toolName === 'get_text_content') {
+    const sizeKB = Math.round(json.length / 1024)
+    if (sizeKB > 50) {
+      const hint = `\n\n<hint>LARGE RESPONSE (~${sizeKB}KB): Scope with nodeId="<frame_id>" to limit to a specific section, or use page="<name>" to limit to one page.</hint>`
+      return json + hint
+    }
+    return json
+  }
+
   if (!NODE_TOOLS.has(toolName)) return json
 
   const d = data as Record<string, unknown>

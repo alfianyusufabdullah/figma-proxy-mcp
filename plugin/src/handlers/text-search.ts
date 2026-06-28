@@ -45,7 +45,25 @@ export async function handleFindTextNodes(params: Record<string, unknown>): Prom
 }
 
 export async function handleGetTextContent(params: Record<string, unknown>): Promise<unknown> {
+  const nodeId = params.nodeId as string | undefined
   const pageFilter = params.page as string | undefined
+
+  if (nodeId) {
+    const root = await figma.getNodeByIdAsync(nodeId)
+    if (!root) throw new Error(`Node not found: ${nodeId}`)
+    const results: Array<{ nodeId: string; name: string; text: string }> = []
+    const walk = (n: BaseNode): void => {
+      if (n.type === 'TEXT') {
+        try { results.push({ nodeId: n.id, name: n.name, text: (n as TextNode).characters }) } catch (_e) {}
+      }
+      if ('children' in n) {
+        for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) walk(child)
+      }
+    }
+    walk(root)
+    return { nodes: results, scopedTo: nodeId }
+  }
+
   const textMap: Record<string, Array<{ nodeId: string; name: string; text: string }>> = {}
   await walkAllPages((node, pageName) => {
     if (node.type !== 'TEXT') return

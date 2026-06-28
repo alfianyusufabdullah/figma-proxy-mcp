@@ -121,7 +121,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('find_text_nodes', { keyword: parsed.keyword, regex: parsed.regex }, fileKey)
           break
         case 'get_text_content':
-          data = await rpc('get_text_content', { page: parsed.page }, fileKey)
+          data = await rpc('get_text_content', { nodeId: parsed.nodeId, page: parsed.page }, fileKey)
           break
         case 'set_text_content':
           data = await rpc('set_text_content', { nodeId: parsed.nodeId, text: parsed.text }, fileKey)
