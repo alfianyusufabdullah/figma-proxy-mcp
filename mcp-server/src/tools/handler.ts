@@ -3,6 +3,21 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { rpc } from '../rpc'
 import { toolSchemas } from './schemas'
+import { postprocess } from './postprocess'
+import { cacheGet, cacheSet, cacheInvalidate } from './cache'
+
+const CACHE_TTL: Partial<Record<string, number>> = {
+  get_metadata: 30_000,
+  get_styles: 60_000,
+  get_variables: 60_000,
+  get_fonts: 60_000,
+  get_colors: 30_000,
+  get_variable_tokens: 60_000,
+  get_typography_tokens: 60_000,
+}
+
+const MUTATION_TOOLS = new Set(['set_text_content', 'set_node_visibility', 'set_solid_fill', 'create_text', 'set_node_properties'])
+const VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'ELLIPSE', 'LINE'])
 
 export function registerToolHandler(srv: Server): void {
   srv.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -15,6 +30,15 @@ export function registerToolHandler(srv: Server): void {
       const parsed = schema.parse(raw) as Record<string, unknown>
       const fileKey = parsed.fileKey as string | undefined
 
+      const cacheTtl = CACHE_TTL[name]
+      const cacheKey = `${fileKey ?? 'default'}:${name}:${JSON.stringify(raw)}`
+      if (cacheTtl !== undefined) {
+        const cached = cacheGet(cacheKey)
+        if (cached !== undefined) {
+          return { content: [{ type: 'text', text: postprocess(name, cached) }] }
+        }
+      }
+
       let data: unknown
       switch (name) {
         case 'get_document':
@@ -24,7 +48,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('get_selection', {}, fileKey)
           break
         case 'get_node':
-          data = await rpc('get_node', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes: parsed.maxNodes }, fileKey)
           break
         case 'get_styles':
           data = await rpc('get_styles', {}, fileKey)
@@ -43,6 +67,9 @@ export function registerToolHandler(srv: Server): void {
           break
         case 'get_image':
           data = await rpc('get_image', { nodeId: parsed.nodeId }, fileKey)
+          break
+        case 'get_svg':
+          data = await rpc('get_svg', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_css':
           data = await rpc('get_css', { nodeId: parsed.nodeId }, fileKey)
@@ -125,18 +152,67 @@ export function registerToolHandler(srv: Server): void {
         case 'get_typography_tokens':
           data = await rpc('get_typography_tokens', {}, fileKey)
           break
+        case 'get_node_full': {
+          let maxNodes = 500
+          let result: unknown
+          while (true) {
+            result = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes }, fileKey)
+            if (!(result as { truncated?: boolean }).truncated || maxNodes >= 5000) break
+            maxNodes = Math.min(maxNodes * 2, 5000)
+          }
+          data = result
+          break
+        }
+        case 'get_slice_spec': {
+          const nodeId = parsed.nodeId as string
+          let maxNodes = 500
+          let nodeResult: unknown
+          while (true) {
+            nodeResult = await rpc('get_node', { nodeId, maxNodes }, fileKey)
+            if (!(nodeResult as { truncated?: boolean }).truncated || maxNodes >= 5000) break
+            maxNodes = Math.min(maxNodes * 2, 5000)
+          }
+          const collectVectors = (n: Record<string, unknown>, acc: string[]) => {
+            if (VECTOR_TYPES.has(n.type as string) && n.id) acc.push(n.id as string)
+            if (Array.isArray(n.children)) (n.children as Record<string, unknown>[]).forEach(c => collectVectors(c, acc))
+          }
+          const vectorIds: string[] = []
+          const rootNode = (nodeResult as { node?: Record<string, unknown> }).node
+          if (rootNode) collectVectors(rootNode, vectorIds)
+          const [layoutResult, svgResult] = await Promise.all([
+            rpc('get_layout_spec', { nodeId }, fileKey).catch(() => null),
+            vectorIds.length > 0 ? rpc('get_svg', { nodeIds: vectorIds }, fileKey).catch(() => null) : Promise.resolve(null),
+          ])
+          data = {
+            ...(nodeResult as object),
+            layout: layoutResult,
+            svgs: (svgResult as { svgs?: unknown } | null)?.svgs ?? [],
+          }
+          break
+        }
         default:
           throw new Error(`Unknown tool: ${name}`)
       }
 
-      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+      if (cacheTtl !== undefined) cacheSet(cacheKey, data, cacheTtl)
+      if (MUTATION_TOOLS.has(name)) cacheInvalidate(fileKey ?? 'default')
+
+      return { content: [{ type: 'text', text: postprocess(name, data) }] }
     } catch (e) {
       if (e instanceof z.ZodError) {
         const issues = (e as unknown as { issues: Array<{ path: (string | number)[]; message: string }> }).issues
         const msg = issues.map((err) => `${err.path.join('.')}: ${err.message}`).join(', ')
         return { content: [{ type: 'text', text: `Validation error: ${msg}` }], isError: true }
       }
-      return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
+      const errMsg = (e as Error).message
+      const lc = errMsg.toLowerCase()
+      let hint = ''
+      if (lc.includes('no figma plugin') || lc.includes('not connected') || lc.includes('econnrefused')) {
+        hint = '\n\n[HINT] Plugin disconnected — reopen the Figma plugin panel and ensure it shows "Connected" before retrying.'
+      } else if (lc.includes('timed out') || lc.includes('timeout')) {
+        hint = '\n\n[HINT] Request timed out — the Figma plugin may be processing a large file. Try again or narrow scope with specific nodeIds.'
+      }
+      return { content: [{ type: 'text', text: errMsg + hint }], isError: true }
     }
   })
 }
