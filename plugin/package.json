@@ -1,9 +1,9 @@
 {
-  "name": "figma-plugin",
+  "name": "figma-proxy-plugin",
   "private": true,
   "scripts": {
-    "build": "esbuild code.ts --bundle --outfile=dist/code.js --target=es2017",
-    "watch": "esbuild code.ts --bundle --outfile=dist/code.js --watch --target=es2017"
+    "build": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es2017",
+    "watch": "esbuild src/code.ts --bundle --outfile=dist/code.js --watch --target=es2017"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.130.0",
