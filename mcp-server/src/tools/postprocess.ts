@@ -13,6 +13,7 @@ interface WalkResult {
 
 const VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'ELLIPSE', 'LINE'])
 const NODE_TOOLS = new Set(['get_document', 'get_node', 'get_design_context', 'get_selection', 'get_node_full', 'get_slice_spec'])
+const SCREENSHOT_TOOLS = new Set(['get_screenshot', 'get_image'])
 
 function walkNodes(nodes: AnyNode[], result: WalkResult, visited = 0): number {
   for (const node of nodes) {
@@ -83,6 +84,16 @@ function detectPatterns(nodes: AnyNode[]): string[] {
 
 export function postprocess(toolName: string, data: unknown): string {
   const json = JSON.stringify(data, null, 2)
+
+  if (SCREENSHOT_TOOLS.has(toolName)) {
+    const d = data as Record<string, unknown>
+    const screenshots = (d.screenshots ?? (d.data ? [d] : [])) as Array<{ format?: string }>
+    const hasRaster = screenshots.some(s => s.format !== 'SVG')
+    if (hasRaster) {
+      return json + '\n\n<hint>To save to disk: `echo "<data_value>" | base64 -d > path/to/file.png` via Bash tool — no Python needed. Or re-call with outputPath="..." to have the MCP server write it directly (only works if MCP server shares your filesystem).</hint>'
+    }
+    return json
+  }
 
   if (toolName === 'get_text_content') {
     const sizeKB = Math.round(json.length / 1024)
