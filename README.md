@@ -10,7 +10,7 @@ No Figma API token. No rate limits. No stale exports. The AI reads exactly what 
 
 Design handoff is slow because engineers have to manually translate Figma specs into code, and UX writers have to hunt through screens to audit copy. Both workflows become faster when an AI agent can read the live design directly:
 
-- **Engineers** can ask: *"Give me the CSS for this card component"* or *"Convert this entire page to HTML"* and get production-ready output.
+- **Engineers** can ask: *"Give me the CSS for this card component"* or *"Export all illustrations in the Services section"* and get production-ready output.
 - **UX Writers** can ask: *"Find every screen with placeholder lorem ipsum"* or *"Are the button labels consistent across all pages?"* and get an answer in seconds.
 
 ---
@@ -140,11 +140,15 @@ claude mcp add figma --transport http https://your-tunnel.example.com/mcp \
 Both backend services have Dockerfiles using a multi-stage esbuild bundle. A single `node:22-alpine` image with no `node_modules`:
 
 ```bash
-# WebSocket proxy
+docker compose up
+```
+
+Or individually:
+
+```bash
 docker build -t figma-proxy-websocket ./websocket
 docker run -p 3000:3000 figma-proxy-websocket
 
-# MCP server (point it at the proxy)
 docker build -t figma-proxy-mcp-server ./mcp-server
 docker run -p 3001:3001 -e PROXY_URL=http://host.docker.internal:3000 figma-proxy-mcp-server
 ```
@@ -156,6 +160,7 @@ docker run -p 3001:3001 -e PROXY_URL=http://host.docker.internal:3000 figma-prox
 | `PROXY_URL` | `http://localhost:3000` | URL of the WebSocket proxy (used by mcp-server) |
 | `MCP_PORT` | `3001` | Port for the MCP server |
 | `MCP_API_KEY` | _(unset)_ | If set, all `/mcp` requests must include `Authorization: Bearer <key>` |
+| `MCP_PUBLIC_URL` | `http://localhost:3001` | Public base URL of the MCP server. Set this to your tunnel URL when exposing remotely (e.g. `https://xyz.ngrok.io`). Used to construct `downloadUrl` in image tool responses. |
 
 ---
 
@@ -167,7 +172,9 @@ docker run -p 3001:3001 -e PROXY_URL=http://host.docker.internal:3000 figma-prox
 |---|---|
 | `get_document` | Full node tree of the current Figma page |
 | `get_selection` | Currently selected nodes |
-| `get_node` | Single node by ID |
+| `get_node` | Single node by ID. Optional `maxNodes` to control tree size. |
+| `get_node_full` | Same as `get_node` but auto-expands `maxNodes` until the full tree is returned |
+| `get_slice_spec` | Full slice spec in one call: complete node tree + layout + all SVG vectors |
 | `get_design_context` | Depth-limited snapshot optimized for AI context |
 | `get_metadata` | File name, pages, current page, file key |
 
@@ -205,16 +212,31 @@ docker run -p 3001:3001 -e PROXY_URL=http://host.docker.internal:3000 figma-prox
 
 | Tool | Description |
 |---|---|
-| `get_screenshot` | Export nodes as PNG/SVG/JPG/PDF (base64-encoded) |
-| `get_image` | Extract image bytes from a node with an image fill |
+| `get_screenshot` | Export nodes as PNG/JPG/PDF. Returns `downloadUrl` per node — save with `curl -o file.png "<downloadUrl>"`. SVG is returned inline. |
+| `get_svg` | Export nodes as SVG markup strings (inline, directly usable). Supports `outputPath`/`outputDir` to write to disk. |
+| `get_image` | Extract the image fill from a node. Returns `downloadUrl`. |
+| `get_exportable_nodes` | Find all nodes with export settings or image fills within a section — use this before `export_section_assets` to preview what will be exported. |
+| `export_section_assets` | Export all image assets in a section in one call. Returns `downloadUrl` per asset (works everywhere), or writes to disk if `outputDir` is provided (requires shared filesystem). |
 | `get_colors` | All unique hex colors used across fills and strokes |
 | `get_fonts` | All fonts used in the document |
+
+#### How image downloads work
+
+`get_screenshot`, `get_image`, and `export_section_assets` store exported files temporarily on the MCP server and return a `downloadUrl`. The agent downloads the file with a single `curl` command:
+
+```bash
+curl -o assets/hero.png "http://localhost:3001/dl/<id>"
+```
+
+Files expire after **10 minutes**. For tunneled setups, set `MCP_PUBLIC_URL` to your public URL so the returned links are reachable from the agent's machine.
+
+If the MCP server shares a filesystem with the agent (local or Docker with a volume mount), you can skip the download step by passing `outputPath` or `outputDir` directly.
 
 ### UX Writing & Copy Audit
 
 | Tool | Description |
 |---|---|
-| `get_text_content` | Dump all text from a page or the entire file |
+| `get_text_content` | Dump all text from a section (`nodeId`), a page (`page`), or the entire file |
 | `find_text_nodes` | Search text by keyword or regex across all pages |
 | `find_placeholders` | Find lorem ipsum, `{{braces}}`, `[brackets]`, and "your text" patterns |
 | `detect_text_overflow` | Find text nodes overflowing their clipped containers |
@@ -227,6 +249,23 @@ docker run -p 3001:3001 -e PROXY_URL=http://host.docker.internal:3000 figma-prox
 ---
 
 ## Usage Examples
+
+### Design handoff: export all assets in a section
+
+> "Export all illustrations in the Services section."
+
+```
+1. get_exportable_nodes({ nodeId: "2650:600" })
+   → lists all nodes with export settings or image fills
+
+2. export_section_assets({ nodeId: "2650:600", format: "PNG", scale: 2 })
+   → { exported: [{ name: "illus-seo", downloadUrl: "http://localhost:3001/dl/abc" }, ...] }
+
+3. curl -o assets/illus-seo.png "http://localhost:3001/dl/abc"
+   (one curl per asset, or batch with a loop)
+```
+
+---
 
 ### Design handoff: get implementation-ready specs
 
@@ -268,6 +307,16 @@ Returns node IDs, page names, and the placeholder content — sorted by page.
 
 ---
 
+> "Get all the copy in the Hero section."
+
+```
+get_text_content({ nodeId: "2650:516" })
+```
+
+Scoping to a `nodeId` returns only text within that subtree — much smaller than dumping the whole file.
+
+---
+
 > "Are the CTA button labels consistent across the app?"
 
 ```
@@ -289,13 +338,12 @@ The change appears live in Figma immediately.
 
 ---
 
-> "Show me all text that is clipped and not fully visible."
+## Node ID format
 
-```
-detect_text_overflow({})
-```
+Both formats are accepted — copy directly from the Figma URL or from the plugin:
 
-Returns every text node overflowing its parent container, with node IDs so the designer can fix the layout.
+- Colon format (internal): `2650:516`
+- Hyphen format (Figma URL `?node-id=...`): `2650-516`
 
 ---
 
