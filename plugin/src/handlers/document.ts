@@ -15,16 +15,18 @@ export async function handleGetDocument(params: Record<string, unknown>): Promis
 export async function handleGetSelection(_params: Record<string, unknown>): Promise<unknown> {
   resetCount()
   const selection = figma.currentPage.selection.map((n) => serializeNode(n, { maxNodes: 100 }))
-  return { selection }
+  return { selection, truncated: wasTruncated() }
 }
 
 export async function handleGetNode(params: Record<string, unknown>): Promise<unknown> {
   resetCount()
   const nodeId = params.nodeId as string
   if (!nodeId) throw new Error('nodeId is required')
+  const maxNodes = (params.maxNodes as number) ?? 500
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node) throw new Error(`Node not found: ${nodeId}`)
-  return serializeNode(node as SceneNode, { maxNodes: 500 })
+  const serialized = serializeNode(node as SceneNode, { maxNodes })
+  return { node: serialized, truncated: wasTruncated() }
 }
 
 export async function handleGetStyles(_params: Record<string, unknown>): Promise<unknown> {
