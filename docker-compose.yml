@@ -1,0 +1,21 @@
+services:
+  websocket:
+    build: ./websocket
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  mcp-server:
+    build: ./mcp-server
+    ports:
+      - "3001:3001"
+    environment:
+      PROXY_URL: http://websocket:3000
+      MCP_PORT: 3001
+    depends_on:
+      - websocket
+    restart: unless-stopped
+
+# The Figma plugin cannot be containerized — it runs inside Figma Desktop.
+# After starting these services, load the plugin from plugin/manifest.json
+# and set the WebSocket URL in the plugin panel to ws://localhost:3000
