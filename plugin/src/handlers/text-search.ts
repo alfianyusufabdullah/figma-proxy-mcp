@@ -1,0 +1,83 @@
+import { toHex } from '../serializer'
+import { walkAllPages } from '../utils'
+
+export async function handleGetFonts(_params: Record<string, unknown>): Promise<unknown> {
+  const fonts = new Set<string>()
+  await walkAllPages((node) => {
+    if (node.type !== 'TEXT') return
+    try {
+      const fontName = (node as TextNode).fontName as FontName
+      fonts.add(`${fontName.family} ${fontName.style}`)
+    } catch (_e) {}
+  })
+  return { fonts: [...fonts].sort() }
+}
+
+export async function handleGetColors(_params: Record<string, unknown>): Promise<unknown> {
+  const colors = new Set<string>()
+  const processPaints = (paints: ReadonlyArray<Paint> | typeof figma.mixed) => {
+    if (paints === figma.mixed || !paints) return
+    for (const paint of paints) {
+      if (paint.type === 'SOLID' && paint.color) colors.add(toHex(paint.color))
+    }
+  }
+  await walkAllPages((node) => {
+    if ('fills' in node) processPaints((node as GeometryMixin).fills)
+    if ('strokes' in node) processPaints((node as GeometryMixin).strokes)
+  })
+  return { colors: [...colors].sort() }
+}
+
+export async function handleFindTextNodes(params: Record<string, unknown>): Promise<unknown> {
+  const keyword = ((params.keyword as string) || '').toLowerCase()
+  const regexStr = params.regex as string | undefined
+  const regex = regexStr ? new RegExp(regexStr, 'i') : null
+  const results: Array<{ nodeId: string; name: string; text: string; page: string }> = []
+  await walkAllPages((node, pageName) => {
+    if (node.type !== 'TEXT') return
+    try {
+      const text = (node as TextNode).characters
+      if (regex && regex.test(text)) results.push({ nodeId: node.id, name: node.name, text, page: pageName })
+      else if (keyword && text.toLowerCase().includes(keyword)) results.push({ nodeId: node.id, name: node.name, text, page: pageName })
+    } catch (_e) {}
+  })
+  return { results }
+}
+
+export async function handleGetTextContent(params: Record<string, unknown>): Promise<unknown> {
+  const pageFilter = params.page as string | undefined
+  const textMap: Record<string, Array<{ nodeId: string; name: string; text: string }>> = {}
+  await walkAllPages((node, pageName) => {
+    if (node.type !== 'TEXT') return
+    try {
+      if (!textMap[pageName]) textMap[pageName] = []
+      textMap[pageName].push({ nodeId: node.id, name: node.name, text: (node as TextNode).characters })
+    } catch (_e) {}
+  }, pageFilter)
+  return { pages: textMap }
+}
+
+export async function handleFindPlaceholders(_params: Record<string, unknown>): Promise<unknown> {
+  const patterns = [
+    { label: 'lorem_ipsum', regex: /lorem\s+ipsum/i },
+    { label: 'placeholder', regex: /placeholder/i },
+    { label: 'double_braces', regex: /\{\{.+?\}\}/ },
+    { label: 'square_brackets', regex: /\[.*?\]/ },
+    { label: 'type_something', regex: /type\s+(something|here|text)/i },
+    { label: 'your_', regex: /your\s+(text|title|message|name|email|content)/i },
+  ]
+  const results: Array<{ nodeId: string; name: string; text: string; page: string; matched: string }> = []
+  await walkAllPages((node, pageName) => {
+    if (node.type !== 'TEXT') return
+    try {
+      const text = (node as TextNode).characters
+      for (const pat of patterns) {
+        if (pat.regex.test(text)) {
+          results.push({ nodeId: node.id, name: node.name, text, page: pageName, matched: pat.label })
+          break
+        }
+      }
+    } catch (_e) {}
+  })
+  return { placeholders: results }
+}
