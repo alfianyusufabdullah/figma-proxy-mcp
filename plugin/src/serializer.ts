@@ -117,7 +117,7 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions): Seriali
   return data
 }
 
-function serializePaints(paints: ReadonlyArray<Paint> | typeof figma.mixed): unknown[] | undefined {
+export function serializePaints(paints: ReadonlyArray<Paint> | typeof figma.mixed): unknown[] | undefined {
   if (paints === figma.mixed || !paints) return undefined
   return paints
     .filter((p) => p.visible !== false)
@@ -143,7 +143,7 @@ function serializePaints(paints: ReadonlyArray<Paint> | typeof figma.mixed): unk
     })
 }
 
-function serializeEffects(effects: ReadonlyArray<Effect> | typeof figma.mixed): unknown[] | undefined {
+export function serializeEffects(effects: ReadonlyArray<Effect> | typeof figma.mixed): unknown[] | undefined {
   if (effects === figma.mixed || !effects) return undefined
   return effects
     .filter((e) => e.visible !== false)
@@ -165,7 +165,7 @@ function serializeEffects(effects: ReadonlyArray<Effect> | typeof figma.mixed): 
     })
 }
 
-function toHex(color: { r: number; g: number; b: number; a?: number }): string {
+export function toHex(color: { r: number; g: number; b: number; a?: number }): string {
   const r = Math.round(color.r * 255).toString(16).padStart(2, '0')
   const g = Math.round(color.g * 255).toString(16).padStart(2, '0')
   const b = Math.round(color.b * 255).toString(16).padStart(2, '0')
