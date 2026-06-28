@@ -9,6 +9,8 @@ export interface SerializedNode {
   type: string
   visible: boolean
   bounds?: { x: number; y: number; width: number; height: number }
+  absoluteBounds?: { x: number; y: number; width: number; height: number }
+  exportSettings?: Array<{ format: string; suffix: string; constraint?: unknown }>
   styles?: Record<string, unknown>
   characters?: string
   children?: SerializedNode[]
@@ -30,6 +32,14 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions): Seriali
   }
 
   if ('x' in node) data.bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
+
+  const ab = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null
+  if (ab) data.absoluteBounds = { x: ab.x, y: ab.y, width: ab.width, height: ab.height }
+
+  const exportSettings = (node as any).exportSettings as Array<{ format: string; suffix: string; constraint?: unknown }> | undefined
+  if (Array.isArray(exportSettings) && exportSettings.length > 0) {
+    data.exportSettings = exportSettings.map(s => ({ format: s.format, suffix: s.suffix, ...(s.constraint ? { constraint: s.constraint } : {}) }))
+  }
 
   const styles: Record<string, unknown> = {}
   if ('opacity' in node) styles.opacity = node.opacity
