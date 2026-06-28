@@ -15,7 +15,3 @@ services:
     depends_on:
       - websocket
     restart: unless-stopped
-
-# The Figma plugin cannot be containerized — it runs inside Figma Desktop.
-# After starting these services, load the plugin from plugin/manifest.json
-# and set the WebSocket URL in the plugin panel to ws://localhost:3000
