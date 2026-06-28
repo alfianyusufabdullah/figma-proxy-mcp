@@ -1,10 +1,11 @@
 import { z } from 'zod'
 
-const NodeIdSchema = z.string().min(1)
+// Accepts both "2650:516" (internal) and "2650-516" (Figma URL format)
+const NodeIdSchema = z.string().min(1).transform(id => id.replace(/-/g, ':'))
 const FileKeySchema = z.string().optional()
 const DepthSchema = z.number().int().min(0).max(10).optional()
 const FormatSchema = z.enum(['PNG', 'SVG', 'JPG', 'PDF']).optional()
-const ScaleSchema = z.number().min(0.5).max(4).optional()
+const ScaleSchema = z.number().min(0.5).max(4).describe('Scale factor 0.5–4. PNG/JPG/PDF only; ignored for SVG.').optional()
 
 export const toolSchemas = {
   get_document: z.object({ depth: DepthSchema, maxNodes: z.number().int().min(10).max(5000).optional(), fileKey: FileKeySchema }),

@@ -31,7 +31,7 @@ export function registerToolHandler(srv: Server): void {
       const fileKey = parsed.fileKey as string | undefined
 
       const cacheTtl = CACHE_TTL[name]
-      const cacheKey = `${fileKey ?? 'default'}:${name}:${JSON.stringify(raw)}`
+      const cacheKey = `${fileKey ?? 'default'}:${name}:${JSON.stringify(parsed)}`
       if (cacheTtl !== undefined) {
         const cached = cacheGet(cacheKey)
         if (cached !== undefined) {

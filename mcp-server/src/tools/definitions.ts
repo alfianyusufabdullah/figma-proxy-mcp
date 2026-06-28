@@ -26,7 +26,32 @@ export const toolList = [
     inputSchema: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'Node ID (e.g. 4029:12345)' },
+        nodeId: { type: 'string', description: 'Node ID — colon format "2650:516" or hyphen format "2650-516" from Figma URLs both work' },
+        maxNodes: { type: 'number', description: 'Max nodes to return (default 500, max 5000). Use get_node_full to auto-expand.' },
+        fileKey: { type: 'string', description: 'File key (omit if single file)' },
+      },
+      required: ['nodeId'],
+    },
+  },
+  {
+    name: 'get_node_full',
+    description: 'Get a Figma node with auto-expanding maxNodes until the full tree is returned (no truncation)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Node ID — "2650:516" or URL hyphen format "2650-516"' },
+        fileKey: { type: 'string', description: 'File key (omit if single file)' },
+      },
+      required: ['nodeId'],
+    },
+  },
+  {
+    name: 'get_slice_spec',
+    description: 'Get a complete slice specification for a node: full tree + layout + all SVG vectors in one call',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Node ID of the frame or section to slice' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
       required: ['nodeId'],
@@ -132,25 +157,42 @@ export const toolList = [
   },
   {
     name: 'get_text_content',
-    description: 'Dump all text content from a specific page or all pages',
+    description: 'Dump all text content. Scope with nodeId (subtree) or page (page name) to avoid large responses.',
     inputSchema: {
       type: 'object',
       properties: {
-        page: { type: 'string', description: 'Page name (omit for all pages)' },
+        nodeId: { type: 'string', description: 'Scope to a specific frame/section subtree (recommended for large files)' },
+        page: { type: 'string', description: 'Page name filter — limits to one page (omit for all pages). Ignored when nodeId is set.' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
     },
   },
   {
     name: 'get_screenshot',
-    description: 'Export nodes as PNG/SVG images (base64-encoded)',
+    description: 'Export nodes as PNG/JPG/PDF (base64) or SVG (markup string). For raster formats, provide outputPath or outputDir to write directly to disk and avoid base64 overflow.',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export (omit for current selection)' },
+        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export (omit for current selection). Max 3 without outputDir.' },
         nodeId: { type: 'string', description: 'Single node ID to export' },
         format: { type: 'string', enum: ['PNG', 'SVG', 'JPG', 'PDF'], description: 'Export format (default PNG)' },
-        scale: { type: 'number', description: 'Scale factor (default 2)' },
+        scale: { type: 'number', description: 'Scale factor 0.5–4 (default 2). PNG/JPG/PDF only.' },
+        outputPath: { type: 'string', description: 'Absolute file path to write to disk (single node only). Returns savedTo path instead of base64.' },
+        outputDir: { type: 'string', description: 'Absolute directory path for multi-node export. Each file named by nodeId. Returns savedTo paths instead of base64.' },
+        fileKey: { type: 'string', description: 'File key (omit if single file)' },
+      },
+    },
+  },
+  {
+    name: 'get_svg',
+    description: 'Export nodes as SVG markup strings. Use outputPath/outputDir to write directly to disk.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export as SVG' },
+        nodeId: { type: 'string', description: 'Single node ID to export as SVG' },
+        outputPath: { type: 'string', description: 'Absolute file path to write SVG to disk (single node only).' },
+        outputDir: { type: 'string', description: 'Absolute directory path for multi-node SVG export. Files named by node name.' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
     },
