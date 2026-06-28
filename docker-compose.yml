@@ -12,6 +12,7 @@ services:
     environment:
       PROXY_URL: http://websocket:3000
       MCP_PORT: 3001
+      MCP_API_KEY: ${MCP_API_KEY:-}
     depends_on:
       - websocket
     restart: unless-stopped
