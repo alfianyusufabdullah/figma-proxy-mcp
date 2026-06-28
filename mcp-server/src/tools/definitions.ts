@@ -169,16 +169,16 @@ export const toolList = [
   },
   {
     name: 'get_screenshot',
-    description: 'Export nodes as PNG/JPG/PDF (base64) or SVG (markup string). For raster formats, provide outputPath or outputDir to write directly to disk and avoid base64 overflow.',
+    description: 'Export nodes as images. Returns downloadUrl per node — save with: curl -o file.png "<downloadUrl>". SVG is returned inline as svg field. Optionally write directly to disk with outputPath/outputDir (requires shared filesystem with MCP server).',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export (omit for current selection). Max 3 without outputDir.' },
+        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export' },
         nodeId: { type: 'string', description: 'Single node ID to export' },
         format: { type: 'string', enum: ['PNG', 'SVG', 'JPG', 'PDF'], description: 'Export format (default PNG)' },
         scale: { type: 'number', description: 'Scale factor 0.5–4 (default 2). PNG/JPG/PDF only.' },
-        outputPath: { type: 'string', description: 'Absolute file path to write to disk (single node only). Returns savedTo path instead of base64.' },
-        outputDir: { type: 'string', description: 'Absolute directory path for multi-node export. Each file named by nodeId. Returns savedTo paths instead of base64.' },
+        outputPath: { type: 'string', description: 'Write directly to this absolute path (single node, shared filesystem only).' },
+        outputDir: { type: 'string', description: 'Write all nodes to this directory (shared filesystem only).' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
     },
@@ -369,17 +369,17 @@ export const toolList = [
   },
   {
     name: 'export_section_assets',
-    description: 'Export all image/exportable assets within a section directly to disk — no base64, no Python scripts. Returns file paths. Combine with get_exportable_nodes to preview before exporting.',
+    description: 'Export all image/exportable assets within a section. Without outputDir: returns downloadUrl per asset — save each with curl. With outputDir: writes files to disk (requires shared filesystem).',
     inputSchema: {
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'Frame or section node ID to export assets from' },
-        outputDir: { type: 'string', description: 'Absolute directory path on the MCP host. Files named by node name.' },
+        outputDir: { type: 'string', description: 'Optional: write to this directory (shared filesystem only). Omit to get downloadUrls instead.' },
         format: { type: 'string', enum: ['PNG', 'SVG', 'JPG', 'PDF'], description: 'Export format (default PNG)' },
         scale: { type: 'number', description: 'Scale factor 0.5–4 (default 2)' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
-      required: ['nodeId', 'outputDir'],
+      required: ['nodeId'],
     },
   },
 ]

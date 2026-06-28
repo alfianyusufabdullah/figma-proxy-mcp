@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-// Accepts both "2650:516" (internal) and "2650-516" (Figma URL format)
 const NodeIdSchema = z.string().min(1).transform(id => id.replace(/-/g, ':'))
 const FileKeySchema = z.string().optional()
 const DepthSchema = z.number().int().min(0).max(10).optional()
@@ -48,5 +47,5 @@ export const toolSchemas = {
   check_text_consistency: z.object({ group_by: z.string().optional(), page: z.string().optional(), fileKey: FileKeySchema }),
   get_typography_tokens: z.object({ fileKey: FileKeySchema }),
   get_exportable_nodes: z.object({ nodeId: NodeIdSchema.optional(), fileKey: FileKeySchema }),
-  export_section_assets: z.object({ nodeId: NodeIdSchema, outputDir: z.string(), format: FormatSchema, scale: ScaleSchema, fileKey: FileKeySchema }),
+  export_section_assets: z.object({ nodeId: NodeIdSchema, outputDir: z.string().optional(), format: FormatSchema, scale: ScaleSchema, fileKey: FileKeySchema }),
 }

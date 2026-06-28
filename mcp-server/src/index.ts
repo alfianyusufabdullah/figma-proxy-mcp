@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { MCP_PORT, MCP_API_KEY } from './config'
 import { createServer } from './server'
+import { serveFile } from './filestore'
 
 interface SessionEntry {
   transport: StreamableHTTPServerTransport
@@ -33,6 +34,19 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 const httpServer = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host}`)
+
+  if (url.pathname.startsWith('/dl/')) {
+    const id = url.pathname.slice(4)
+    const file = serveFile(id)
+    if (!file) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'File not found or expired (TTL: 10 min)' }))
+      return
+    }
+    res.writeHead(200, { 'Content-Type': file.mimeType, 'Content-Length': file.data.length, 'Cache-Control': 'no-store' })
+    res.end(file.data)
+    return
+  }
 
   if (url.pathname !== '/mcp') {
     res.writeHead(404)

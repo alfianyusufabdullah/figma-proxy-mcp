@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { MCP_PUBLIC_URL } from '../config'
+import { storeFile } from '../filestore'
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { rpc } from '../rpc'
 import { toolSchemas } from './schemas'
@@ -68,12 +70,9 @@ export function registerToolHandler(srv: Server): void {
           const outputPath = parsed.outputPath as string | undefined
           const outputDir = parsed.outputDir as string | undefined
           const nodeIds = parsed.nodeIds as string[] | undefined
-          if (!outputDir && !outputPath && nodeIds && nodeIds.length > 3) {
-            throw new Error(`Batch too large: ${nodeIds.length} nodes without outputDir. Max 3 per call, or provide outputDir to write all to disk.`)
-          }
           data = await rpc('get_screenshot', { nodeIds, nodeId: parsed.nodeId, format: parsed.format ?? 'PNG', scale: parsed.scale ?? 2 }, fileKey)
+          const screenshots = (data as { screenshots: Array<{ nodeId: string; data: string; format: string }> }).screenshots
           if (outputPath || outputDir) {
-            const { screenshots } = data as { screenshots: Array<{ nodeId: string; data: string; format: string }> }
             if (outputPath && screenshots.length > 1) throw new Error('outputPath is for single-node exports. Use outputDir for multiple nodes.')
             const saved = screenshots.map(s => {
               const ext = s.format === 'SVG' ? 'svg' : s.format === 'PDF' ? 'pdf' : s.format === 'JPG' ? 'jpg' : 'png'
@@ -84,12 +83,24 @@ export function registerToolHandler(srv: Server): void {
               return { nodeId: s.nodeId, savedTo: filePath, format: s.format }
             })
             data = { saved }
+          } else {
+            const mimeOf = (fmt: string) => fmt === 'SVG' ? 'image/svg+xml' : fmt === 'JPG' ? 'image/jpeg' : fmt === 'PDF' ? 'application/pdf' : 'image/png'
+            data = {
+              screenshots: screenshots.map(s => {
+                if (s.format === 'SVG') return { nodeId: s.nodeId, format: s.format, svg: s.data }
+                const id = storeFile(Buffer.from(s.data, 'base64'), mimeOf(s.format))
+                return { nodeId: s.nodeId, format: s.format, downloadUrl: `${MCP_PUBLIC_URL}/dl/${id}` }
+              })
+            }
           }
           break
         }
-        case 'get_image':
-          data = await rpc('get_image', { nodeId: parsed.nodeId }, fileKey)
+        case 'get_image': {
+          const raw2 = await rpc('get_image', { nodeId: parsed.nodeId }, fileKey) as { nodeId: string; data: string; format: string }
+          const id2 = storeFile(Buffer.from(raw2.data, 'base64'), 'image/png')
+          data = { nodeId: raw2.nodeId, format: raw2.format, downloadUrl: `${MCP_PUBLIC_URL}/dl/${id2}` }
           break
+        }
         case 'get_svg': {
           const outputPath = parsed.outputPath as string | undefined
           const outputDir = parsed.outputDir as string | undefined
@@ -193,14 +204,16 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'export_section_assets': {
-          const outputDir = parsed.outputDir as string
+          const outputDir = parsed.outputDir as string | undefined
           const format = (parsed.format as string | undefined) ?? 'PNG'
           const scale = (parsed.scale as number | undefined) ?? 2
+          const ext = format === 'SVG' ? 'svg' : format === 'PDF' ? 'pdf' : format === 'JPG' ? 'jpg' : 'png'
+          const mime = format === 'SVG' ? 'image/svg+xml' : format === 'JPG' ? 'image/jpeg' : format === 'PDF' ? 'application/pdf' : 'image/png'
           const discovery = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey) as {
             exportableNodes: Array<{ nodeId: string; name: string }>
           }
-          mkdirSync(outputDir, { recursive: true })
-          const exported: Array<{ nodeId: string; name: string; savedTo: string }> = []
+          if (outputDir) mkdirSync(outputDir, { recursive: true })
+          const exported: Array<{ nodeId: string; name: string; savedTo?: string; downloadUrl?: string }> = []
           const errors: Array<{ nodeId: string; name: string; error: string }> = []
           for (const node of discovery.exportableNodes) {
             try {
@@ -209,17 +222,23 @@ export function registerToolHandler(srv: Server): void {
               }
               const s = result.screenshots[0]
               if (!s) continue
-              const ext = format === 'SVG' ? 'svg' : format === 'PDF' ? 'pdf' : format === 'JPG' ? 'jpg' : 'png'
               const safeName = node.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()
-              const filePath = join(outputDir, `${safeName}.${ext}`)
-              if (format === 'SVG') writeFileSync(filePath, s.data, 'utf8')
-              else writeFileSync(filePath, Buffer.from(s.data, 'base64'))
-              exported.push({ nodeId: node.nodeId, name: node.name, savedTo: filePath })
+              if (outputDir) {
+                const filePath = join(outputDir, `${safeName}.${ext}`)
+                if (format === 'SVG') writeFileSync(filePath, s.data, 'utf8')
+                else writeFileSync(filePath, Buffer.from(s.data, 'base64'))
+                exported.push({ nodeId: node.nodeId, name: node.name, savedTo: filePath })
+              } else {
+                const dlId = format === 'SVG'
+                  ? storeFile(s.data, mime)
+                  : storeFile(Buffer.from(s.data, 'base64'), mime)
+                exported.push({ nodeId: node.nodeId, name: node.name, downloadUrl: `${MCP_PUBLIC_URL}/dl/${dlId}` })
+              }
             } catch (e) {
               errors.push({ nodeId: node.nodeId, name: node.name, error: (e as Error).message })
             }
           }
-          data = { exported, errors, outputDir }
+          data = { exported, errors }
           break
         }
         case 'get_node_full': {
