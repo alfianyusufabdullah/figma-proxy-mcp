@@ -83,7 +83,10 @@ export async function handleCheckTextConsistency(params: Record<string, unknown>
 
 export async function handleGetTypographyTokens(_params: Record<string, unknown>): Promise<unknown> {
   const textStyles = await figma.getLocalTextStylesAsync()
-  return Promise.all(
+  if (textStyles.length === 0) {
+    return { hasStyles: false, reason: 'No local text styles defined in this file', styles: [] }
+  }
+  const styles = await Promise.all(
     textStyles.map(async (s) => ({
       id: s.id, name: s.name, key: s.key, description: s.description,
       fontSize: s.fontSize, fontName: s.fontName, fontWeight: s.fontWeight,
@@ -93,4 +96,5 @@ export async function handleGetTypographyTokens(_params: Record<string, unknown>
       listSpacing: s.listSpacing, leadingTrim: s.leadingTrim,
     }))
   )
+  return { hasStyles: true, styles }
 }
