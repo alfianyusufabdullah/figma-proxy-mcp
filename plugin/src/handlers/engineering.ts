@@ -1,4 +1,5 @@
 import { serializePaints, serializeEffects } from '../serializer'
+import { handleGetCss } from './assets'
 
 export async function handleGetLayoutSpec(params: Record<string, unknown>): Promise<unknown> {
   const nodeId = params.nodeId as string
@@ -88,5 +89,27 @@ export async function handleGetEffectSpec(params: Record<string, unknown>): Prom
   return {
     effects: serializeEffects((node as BlendMixin).effects),
     effectStyleId: (node as BlendMixin).effectStyleId || undefined,
+  }
+}
+
+export async function handleGetNodeStyles(params: Record<string, unknown>): Promise<unknown> {
+  const nodeId = params.nodeId as string
+  if (!nodeId) throw new Error('nodeId is required')
+  const [css, layout, responsive, effects, stroke, radius] = await Promise.allSettled([
+    handleGetCss({ nodeId }),
+    handleGetLayoutSpec({ nodeId }),
+    handleGetResponsiveBehavior({ nodeId }),
+    handleGetEffectSpec({ nodeId }),
+    handleGetStrokeSpec({ nodeId }),
+    handleGetCornerRadii({ nodeId }),
+  ])
+  return {
+    nodeId,
+    css: css.status === 'fulfilled' ? css.value : null,
+    layout: layout.status === 'fulfilled' ? layout.value : null,
+    responsive: responsive.status === 'fulfilled' ? responsive.value : null,
+    effects: effects.status === 'fulfilled' ? effects.value : null,
+    stroke: stroke.status === 'fulfilled' ? stroke.value : null,
+    radius: radius.status === 'fulfilled' ? radius.value : null,
   }
 }
