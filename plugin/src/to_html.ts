@@ -1,6 +1,15 @@
-export function nodeToHTML(node: SceneNode): string {
+interface NodeHTMLOpts {
+  svgMap?: Map<string, string>
+  responsive?: boolean
+  assetPaths?: string
+}
+
+export function nodeToHTML(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, isTopLevel = false): string {
+  if (opts?.svgMap?.has(node.id)) {
+    return opts.svgMap.get(node.id)!
+  }
   const tag = figmaTag(node)
-  const css = figmaCSS(node)
+  const css = figmaCSS(node, inAutoLayout, opts, isTopLevel)
   const attrs = figmaAttrs(node)
   const attrStr = attrs.map((a) => `${a[0]}="${a[1]}"`).join(' ')
   const styleStr = css.length > 0 ? ` style="${css.join('; ')}"` : ''
@@ -13,9 +22,10 @@ export function nodeToHTML(node: SceneNode): string {
   }
 
   if ('children' in node && node.children.length > 0) {
+    const parentHasLayout = 'layoutMode' in node && (node as FrameNode).layoutMode !== 'NONE'
     const children = node.children
       .filter((c) => c.visible !== false)
-      .map((c) => nodeToHTML(c as SceneNode))
+      .map((c) => nodeToHTML(c as SceneNode, parentHasLayout, opts, false))
       .join('\n    ')
     return `${openTag}\n    ${children}\n  ${closeTag}`
   }
@@ -42,15 +52,37 @@ function figmaTag(node: SceneNode): string {
   }
 }
 
-function figmaCSS(node: SceneNode): string[] {
+function figmaCSS(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, isTopLevel = false): string[] {
   const css: string[] = []
   const hasPos = 'x' in node
-  if (hasPos) {
+  // a flex child is one that lives inside an auto-layout parent AND is not itself ABSOLUTE-positioned
+  const layoutPos = hasPos && 'layoutPositioning' in node
+    ? (node as unknown as Record<string, unknown>).layoutPositioning
+    : undefined
+  const isFlexChild = inAutoLayout && layoutPos !== 'ABSOLUTE'
+
+  if (hasPos && isTopLevel && opts?.responsive) {
+    css.push(`width: 100%`)
+    css.push(`max-width: ${(node as SceneNode).width}px`)
+  } else if (hasPos && !isFlexChild) {
     css.push(`position: absolute`)
     css.push(`left: ${(node as SceneNode).x}px`)
     css.push(`top: ${(node as SceneNode).y}px`)
     css.push(`width: ${(node as SceneNode).width}px`)
     css.push(`height: ${(node as SceneNode).height}px`)
+  } else if (hasPos && isFlexChild) {
+    const hSizing = 'layoutSizingHorizontal' in node
+      ? (node as unknown as Record<string, unknown>).layoutSizingHorizontal
+      : undefined
+    const vSizing = 'layoutSizingVertical' in node
+      ? (node as unknown as Record<string, unknown>).layoutSizingVertical
+      : undefined
+    if (hSizing === 'FILL') css.push('flex: 1')
+    else if (hSizing === 'HUG') css.push('width: max-content')
+    else css.push(`width: ${(node as SceneNode).width}px`)
+    if (vSizing === 'FILL') css.push('align-self: stretch')
+    else if (vSizing === 'HUG') css.push('height: max-content')
+    else css.push(`height: ${(node as SceneNode).height}px`)
   }
   if ('opacity' in node && (node as BlendMixin).opacity !== undefined && (node as BlendMixin).opacity < 1) {
     css.push(`opacity: ${(node as BlendMixin).opacity}`)
@@ -71,6 +103,14 @@ function figmaCSS(node: SceneNode): string[] {
       const gradient = fills.find((f) => f.type.startsWith('GRADIENT') && f.visible !== false) as GradientPaint | undefined
       if (gradient) {
         css.push(`background: ${gradientCSS(gradient)}`)
+      }
+      if (opts?.assetPaths) {
+        const imageFill = fills.find((f) => f.type === 'IMAGE' && f.visible !== false)
+        if (imageFill) {
+          css.push(`background-image: url('${opts.assetPaths}${node.id.replace(/:/g, '-')}.png')`)
+          css.push('background-size: cover')
+          css.push('background-position: center')
+        }
       }
     }
   }

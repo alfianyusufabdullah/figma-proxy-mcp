@@ -9,12 +9,33 @@ export async function handleExportJson(params: Record<string, unknown>): Promise
   return (node as SceneNode).exportAsync({ format: 'JSON_REST_V1' })
 }
 
+const VECTOR_TYPES_HTML = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'ELLIPSE', 'LINE'])
+
 export async function handleToHtml(params: Record<string, unknown>): Promise<unknown> {
   const nodeId = params.nodeId as string
   if (!nodeId) throw new Error('nodeId is required')
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node) throw new Error('Node not found')
-  const html = nodeToHTML(node as SceneNode)
+
+  const includeSvgPaths = (params.includeSvgPaths as boolean) ?? false
+  const responsive = (params.responsive as boolean) ?? false
+  const assetPaths = params.assetPaths as string | undefined
+
+  const svgMap = new Map<string, string>()
+  if (includeSvgPaths) {
+    const vectorNodes: SceneNode[] = []
+    const collectVectors = (n: BaseNode): void => {
+      if (VECTOR_TYPES_HTML.has(n.type) && 'exportAsync' in n) vectorNodes.push(n as SceneNode)
+      if ('children' in n) for (const c of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) collectVectors(c)
+    }
+    collectVectors(node)
+    await Promise.all(vectorNodes.map(async (vn) => {
+      try { svgMap.set(vn.id, await vn.exportAsync({ format: 'SVG_STRING' })) } catch (_e) {}
+    }))
+  }
+
+  const opts = { svgMap: svgMap.size > 0 ? svgMap : undefined, responsive, assetPaths }
+  const html = nodeToHTML(node as SceneNode, false, opts, true)
   return { nodeId, html, type: node.type, name: node.name }
 }
 
