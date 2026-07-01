@@ -84,7 +84,15 @@ export async function handleGetSvg(params: Record<string, unknown>): Promise<unk
     if (!('exportAsync' in node)) { errors.push({ nodeId: id, error: `Node type ${node.type} cannot be exported` }); continue }
     try {
       const svg = await (node as SceneNode).exportAsync({ format: 'SVG_STRING' })
-      results.push({ nodeId: id, name: node.name, type: node.type, svg })
+      // annotate INSTANCE exports: Figma may use master component clip-path IDs internally,
+      // so agents should trust the node name for file naming rather than internal SVG IDs
+      const instanceMeta: Record<string, unknown> = {}
+      if (node.type === 'INSTANCE') {
+        const mainComp = await (node as InstanceNode).getMainComponentAsync()
+        instanceMeta.isInstance = true
+        instanceMeta.mainComponentId = mainComp?.id ?? null
+      }
+      results.push({ nodeId: id, name: node.name, type: node.type, svg, ...instanceMeta })
     } catch (e) {
       errors.push({ nodeId: id, error: (e as Error).message })
     }
@@ -128,10 +136,28 @@ export async function handleGetExportableNodes(params: Record<string, unknown>):
   if (nodeId) {
     const node = await figma.getNodeByIdAsync(nodeId)
     if (!node) throw new Error(`Node not found: ${nodeId}`)
-    walk(node)
+    walk(node as BaseNode)
   } else {
     for (const child of figma.currentPage.children) walk(child)
   }
 
   return { exportableNodes: results }
+}
+
+export async function handleGetCssBatch(params: Record<string, unknown>): Promise<unknown> {
+  const nodeId = params.nodeId as string
+  if (!nodeId) throw new Error('nodeId is required')
+  const root = await figma.getNodeByIdAsync(nodeId)
+  if (!root) throw new Error(`Node not found: ${nodeId}`)
+  const cssMap: Record<string, Record<string, string>> = {}
+  const walk = async (n: BaseNode): Promise<void> => {
+    if ('getCSSAsync' in n) {
+      try { cssMap[n.id] = await (n as SceneNode).getCSSAsync() } catch (_e) {}
+    }
+    if ('children' in n) {
+      for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) await walk(child)
+    }
+  }
+  await walk(root)
+  return { cssMap }
 }

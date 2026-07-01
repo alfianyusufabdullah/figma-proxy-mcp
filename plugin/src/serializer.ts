@@ -1,7 +1,10 @@
 export interface SerializeOptions {
   depth?: number
   maxNodes?: number
+  excludeVectorPaths?: boolean
 }
+
+const VECTOR_LEAF_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'LINE'])
 
 export interface SerializedNode {
   id: string
@@ -29,6 +32,11 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions): Seriali
     name: node.name,
     type: node.type,
     visible: node.visible,
+  }
+
+  if (opts?.excludeVectorPaths && VECTOR_LEAF_TYPES.has(node.type)) {
+    if ('x' in node) data.bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
+    return data
   }
 
   if ('x' in node) data.bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
