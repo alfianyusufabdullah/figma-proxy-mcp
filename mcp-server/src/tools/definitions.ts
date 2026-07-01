@@ -357,6 +357,11 @@ export const toolList = [
     inputSchema: { type: 'object', properties: { fileKey: { type: 'string' } } },
   },
   {
+    name: 'get_frame_summary',
+    description: 'Get a lightweight summary of a frame: dimensions, top-level sections, colors, fonts, asset counts, and whether variable/text tokens are defined. Use this for initial orientation before diving into detailed spec. ~200 tokens vs thousands from get_slice_spec.',
+    inputSchema: { type: 'object', properties: { nodeId: { type: 'string', description: 'Frame or section node ID' }, fileKey: { type: 'string' } }, required: ['nodeId'] },
+  },
+  {
     name: 'get_exportable_nodes',
     description: 'Find all nodes in a section that have export settings or image fills — the quick way to discover which assets to export before calling get_screenshot or export_section_assets',
     inputSchema: {

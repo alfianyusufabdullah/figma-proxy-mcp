@@ -1,6 +1,6 @@
 import { strip, getFileKey } from './utils'
 import {
-  handleGetDocument, handleGetSelection, handleGetNode, handleGetStyles, handleGetMetadata, handleGetDesignContext,
+  handleGetDocument, handleGetSelection, handleGetNode, handleGetStyles, handleGetMetadata, handleGetDesignContext, handleGetFrameSummary,
   handleGetScreenshot, handleGetImage, handleGetCss, handleGetSvg, handleGetExportableNodes,
   handleGetFonts, handleGetColors, handleFindTextNodes, handleGetTextContent, handleGetTextSegments, handleDetectTextOverflow, handleFindPlaceholders, handleCheckTextConsistency, handleGetTypographyTokens,
   handleGetVariables, handleGetVariableTokens, handleGetNodeVariableBindings,
@@ -63,6 +63,7 @@ async function handleRequest(requestId: string, command: string, params: Record<
       case 'create_text':                data = await handleCreateText(params); break
       case 'set_node_properties':        data = await handleSetNodeProperties(params); break
       case 'export_json':                data = await handleExportJson(params); break
+      case 'get_frame_summary':          data = await handleGetFrameSummary(params); break
       case 'to_html':                    data = await handleToHtml(params); break
       case 'to_html_page':               data = await handleToHtmlPage(params); break
       default: throw new Error(`Unknown command: ${command}`)

@@ -1,4 +1,4 @@
-export { handleGetDocument, handleGetSelection, handleGetNode, handleGetStyles, handleGetMetadata, handleGetDesignContext } from './document'
+export { handleGetDocument, handleGetSelection, handleGetNode, handleGetStyles, handleGetMetadata, handleGetDesignContext, handleGetFrameSummary } from './document'
 export { handleGetScreenshot, handleGetImage, handleGetCss, handleGetSvg, handleGetExportableNodes } from './assets'
 export { handleGetFonts, handleGetColors, handleFindTextNodes, handleGetTextContent, handleFindPlaceholders } from './text-search'
 export { handleGetTextSegments, handleDetectTextOverflow, handleCheckTextConsistency, handleGetTypographyTokens } from './text-analysis'

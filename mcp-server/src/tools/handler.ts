@@ -194,6 +194,9 @@ export function registerToolHandler(srv: Server): void {
         case 'find_placeholders':
           data = await rpc('find_placeholders', {}, fileKey)
           break
+        case 'get_frame_summary':
+          data = await rpc('get_frame_summary', { nodeId: parsed.nodeId }, fileKey)
+          break
         case 'check_text_consistency':
           data = await rpc('check_text_consistency', { group_by: parsed.group_by, page: parsed.page }, fileKey)
           break

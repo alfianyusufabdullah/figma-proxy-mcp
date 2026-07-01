@@ -1,4 +1,4 @@
-import { serializeNode, resetCount, wasTruncated } from '../serializer'
+import { serializeNode, resetCount, wasTruncated, toHex } from '../serializer'
 import { getFileKey } from '../utils'
 
 export async function handleGetDocument(params: Record<string, unknown>): Promise<unknown> {
@@ -66,5 +66,84 @@ export async function handleGetDesignContext(params: Record<string, unknown>): P
   return {
     nodes: page.children.filter((c) => c.visible !== false).map((c) => serializeNode(c as SceneNode, { depth, maxNodes })),
     truncated: wasTruncated(),
+  }
+}
+
+const VECTOR_TYPES_SET = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'ELLIPSE', 'LINE'])
+
+export async function handleGetFrameSummary(params: Record<string, unknown>): Promise<unknown> {
+  const nodeId = params.nodeId as string
+  if (!nodeId) throw new Error('nodeId is required')
+  const node = await figma.getNodeByIdAsync(nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+
+  const w = 'width' in node ? (node as unknown as Record<string, number>).width : 0
+  const h = 'height' in node ? (node as unknown as Record<string, number>).height : 0
+
+  const sections: Array<{ id: string; name: string; type: string; bounds: { y: number; h: number } }> = []
+  if ('children' in node) {
+    for (const child of (node as ChildrenMixin).children) {
+      if ('visible' in child && !(child as SceneNode).visible) continue
+      const bounds = 'y' in child
+        ? { y: (child as unknown as Record<string, number>).y, h: (child as unknown as Record<string, number>).height }
+        : { y: 0, h: 0 }
+      sections.push({ id: child.id, name: child.name, type: child.type, bounds })
+    }
+  }
+
+  const colors = new Set<string>()
+  const fontMap = new Map<string, { family: string; weights: Set<number>; sizes: Set<number> }>()
+  let imageCount = 0
+  let vectorCount = 0
+
+  const walk = (n: BaseNode): void => {
+    if ('fills' in n) {
+      const fills = (n as GeometryMixin).fills
+      if (fills !== figma.mixed && Array.isArray(fills)) {
+        for (const f of fills) {
+          if (f.type === 'SOLID' && f.color) colors.add(toHex(f.color))
+          if (f.type === 'IMAGE') imageCount++
+        }
+      }
+    }
+    if (n.type === 'TEXT') {
+      try {
+        const t = n as TextNode
+        if (t.fontName !== figma.mixed) {
+          const fn = t.fontName as FontName
+          if (!fontMap.has(fn.family)) fontMap.set(fn.family, { family: fn.family, weights: new Set(), sizes: new Set() })
+          const entry = fontMap.get(fn.family)!
+          const w = fn.style === 'Bold' ? 700 : fn.style === 'Medium' ? 500 : fn.style === 'SemiBold' ? 600 : fn.style === 'Light' ? 300 : 400
+          entry.weights.add(w)
+          if (t.fontSize !== figma.mixed && typeof t.fontSize === 'number') entry.sizes.add(t.fontSize)
+        }
+      } catch (_e) {}
+    }
+    if (VECTOR_TYPES_SET.has(n.type)) vectorCount++
+    if ('children' in n) {
+      for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) walk(child)
+    }
+  }
+  walk(node)
+
+  const [varCollections, textStyles] = await Promise.all([
+    figma.variables.getLocalVariableCollectionsAsync(),
+    figma.getLocalTextStylesAsync(),
+  ])
+
+  return {
+    nodeId,
+    name: node.name,
+    dimensions: { width: w, height: h },
+    sections,
+    colors: [...colors].sort().slice(0, 20),
+    fonts: [...fontMap.values()].map((f) => ({
+      family: f.family,
+      weights: [...f.weights].sort((a, b) => a - b),
+      sizes: [...f.sizes].sort((a, b) => a - b),
+    })),
+    assetCount: { images: imageCount, vectors: vectorCount },
+    hasVariableTokens: varCollections.length > 0,
+    hasTextStyles: textStyles.length > 0,
   }
 }
