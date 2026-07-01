@@ -8,219 +8,362 @@ Slice a Figma frame into production-ready code with ≥95% visual fidelity. `$AR
 
 ---
 
-## Phase 1 — Capture Reference Screenshot
+## Execution Model — Three-Stage Sub-Agent Dispatch
 
-Before touching code or assets, take a screenshot of the Figma frame. This is the ground truth you'll compare against at the end.
+```
+┌──────────────────────────────────────────────────┐
+│           STAGE A — Grounding (parallel)          │
+│                                                   │
+│  [Sub-agent 1]          [Sub-agent 2]             │
+│  Phase 1 + 3 + 4        Phase 2                   │
+│  Screenshot +           Read Design               │
+│  Tokens + Copy          (slice spec)              │
+└──────────────┬────────────────────────────────────┘
+               │ both agents complete
+               ▼
+┌──────────────────────────────────────────────────┐
+│           STAGE B — Asset Download (1 agent)      │
+│                                                   │
+│  [Sub-agent 3]                                    │
+│  Phase 5                                          │
+│  Asset Identification, SVG extraction,            │
+│  PNG download, manifest                           │
+└──────────────┬────────────────────────────────────┘
+               │ complete
+               ▼
+┌──────────────────────────────────────────────────┐
+│           STAGE C — Build + Verify (sequential)   │
+│                                                   │
+│  Phase 6  →  Phase 7                              │
+│  Build HTML  Fidelity Check                       │
+└──────────────────────────────────────────────────┘
+```
+
+**Gate rules:**
+- Do not begin Stage B until both Stage A sub-agents have completed.
+- Do not begin Stage C until Stage B is complete.
+- Do not present the implementation to the user until Phase 7 fidelity is ≥ 95%.
+
+> **Single source of truth:** `get_slice_spec` returns the complete node tree with `styles` on every node — fills, layout, constraints, effects, strokes, typography. Do NOT call `get_css`, `get_layout_spec`, `get_responsive_behavior`, `get_effect_spec`, `get_stroke_spec`, or `get_corner_radii` for nodes already in the spec. Those are fallback-only tools for nodes discovered after the spec was fetched.
+
+---
+
+## Phase 1 — Capture Reference Screenshot
+*[Sub-agent 1 — Stage A, parallel]*
+
+Before touching code or assets, screenshot the Figma frame. This is the ground truth you'll compare against at the end.
 
 ```
 get_screenshot({ nodeId: "$ARGUMENTS", format: "PNG", scale: 2 })
 ```
 
-Download it immediately (URLs expire in 10 min):
+Download immediately (URLs expire in 10 min):
 
 ```bash
+mkdir -p reference assets output
 curl -o reference/design-reference@2x.png "<downloadUrl>"
 ```
-
-Keep this file. It is the visual target for the entire implementation.
 
 ---
 
 ## Phase 2 — Read the Design
+*[Sub-agent 2 — Stage A, parallel]*
+
+### Step 2a — Frame summary (fast pre-read)
 
 ```
-get_slice_spec({ nodeId: "$ARGUMENTS" })
+get_frame_summary({ nodeId: "$ARGUMENTS" })
 ```
 
-This is the most important call. It returns the complete node tree, auto-layout spec, and inline SVG data for every vector — all in one round-trip. Read carefully before proceeding. If `truncated: true`, follow up:
+Returns: `dimensions`, `sections` (direct children with y/height), `colors` (top 20 hex), `fonts`, `assetCount` (images + vectors), `hasVariableTokens`, `hasTextStyles`.
+
+Use this to plan: `hasVariableTokens` / `hasTextStyles` → signal to Sub-agent 1 whether Phase 3 tokens are needed. `assetCount` → shapes Phase 5.
+
+### Step 2b — Full node tree
 
 ```
-get_node_full({ nodeId: "$ARGUMENTS" })
+get_slice_spec({
+  nodeId: "$ARGUMENTS",
+  maxDepth: 5,
+  excludeVectorPaths: true,
+  includeSvgPaths: false
+})
 ```
+
+Returns the complete node tree. Every node includes a `styles` object with: fills, strokes, effects, layout (layoutMode, gap, padding, alignment, sizing), constraints, typography. **This is all the CSS data you need — do not fetch it again in Phase 6.**
+
+`excludeVectorPaths: true` — strips detailed style data from VECTOR/ELLIPSE/STAR/POLYGON/LINE nodes (they can only be rendered as SVG anyway). Reduces response size 40–80% for illustration-heavy designs. Set to `false` only if you need fills/stroke colors from vector nodes.
+
+`maxDepth` (1–20): 3–5 for large frames. If `truncated: true`, re-fetch the truncated subtree:
+
+```
+get_node_full({ nodeId: "<truncated-section-id>" })
+```
+
+`includeSvgPaths: true` embeds SVG markup inline per VECTOR node — use only when you need SVG content but no spec run exists yet (rare: usually get_svg fallback in Phase 5 covers this).
 
 ---
 
-## Phase 3 — Design Tokens (before any CSS)
+## Phase 3 — Design Tokens
+*[Sub-agent 1 — Stage A, continues after Phase 1]*
+
+> **Skip condition:** If Sub-agent 2's `get_frame_summary` returned `hasVariableTokens: false` AND `hasTextStyles: false`, skip this phase entirely.
 
 ```
 get_variable_tokens({})
 get_typography_tokens({})
 ```
 
-Always do this before writing a single line of CSS. Nodes with variable bindings **must** use CSS custom properties — never hardcode a hex or pixel value that has a token behind it.
+Both return a descriptive shape: `{ hasTokens: false, reason: "..." }` or `{ hasTokens: true, collections: [...] }`. Stop processing on `hasTokens: false`.
+
+Nodes with variable bindings **must** use CSS custom properties — never hardcode a value that has a token behind it.
 
 ---
 
 ## Phase 4 — Copy
+*[Sub-agent 1 — Stage A, continues after Phase 3]*
 
 ```
 get_text_content({ nodeId: "$ARGUMENTS" })
-find_placeholders({})
 ```
 
-Get all text in the frame, then check for lorem ipsum or unfilled `{{tokens}}` before implementing.
+Check for lorem ipsum or `{{placeholder}}` patterns. If suspicious content is found, optionally scope a placeholder check:
+
+```
+find_placeholders({ nodeId: "$ARGUMENTS" })   ← optional, only if text looks suspicious
+```
+
+`find_placeholders` is **not a default step** — only call it when `get_text_content` reveals potential placeholder text.
 
 ---
 
-## Phase 5 — Precise Asset Identification & Download
+## Phase 5 — Asset Identification & Download
+*[Sub-agent 3 — Stage B]*
 
-This is the most critical phase for accuracy. The goal is to download only the actual illustration/image nodes — not their parent containers.
+> ⛔ **HARD RULE: Only two node types are ever downloaded — pure `IMAGE` nodes and pure `VECTOR` nodes. Everything else is rendered in CSS/HTML.**
 
-### Step 5a — Find exportable nodes
+### Step 5a — Identify IMAGE nodes from the spec
 
-```
-get_exportable_nodes({ nodeId: "$ARGUMENTS" })
-```
+Do NOT call `get_exportable_nodes` first. Use the `get_slice_spec` tree from Phase 2 to identify IMAGE fill nodes directly. `get_exportable_nodes` is a verification fallback, not a discovery tool.
 
-### Step 5b — Identify the correct node for each asset
+Walk the spec tree and collect nodes where `styles.fills` contains a paint with `type: "IMAGE"`.
 
-For every node in the exportable list, inspect its type and children from the `get_slice_spec` tree:
-
-| Node type | Has text children? | Action |
-|---|---|---|
-| `IMAGE` | No | ✅ Download this node |
-| `VECTOR`, `BOOLEAN_OPERATION`, `ELLIPSE`, `STAR`, `POLYGON`, `LINE` | No | ✅ Use inline SVG from `get_slice_spec` — write directly to file |
-| `FRAME`, `GROUP`, `COMPONENT` | **No text, only visuals** | ✅ Download this node |
-| `FRAME`, `GROUP`, `COMPONENT` | **Has text children** | ❌ Do NOT download — traverse to find the visual-only child |
-
-**Rule:** If a container node mixes visuals and text, go deeper. Find the innermost node that is purely the illustration or image. Download that specific node, not the container.
+Only fall back to `get_exportable_nodes` if the spec tree doesn't give clear IMAGE identification:
 
 ```
-get_node_full({ nodeId: "<child-node-id>" })   # inspect if needed
+get_exportable_nodes({ nodeId: "$ARGUMENTS" })   ← fallback only
 ```
 
-### Step 5c — Download rasters
+### Step 5b — Eligibility test (mandatory for every candidate)
 
-Export in one call, then curl immediately:
+Apply this decision tree in order — stop at the first match:
 
 ```
-export_section_assets({ nodeId: "<specific-image-node-id>", format: "PNG", scale: 2 })
+Is the node type IMAGE fill (has fills[].type === "IMAGE")?
+  → YES: ✅ ELIGIBLE — download as PNG (Step 5c)
+  → NO: continue ↓
+
+Is the node type one of: VECTOR, BOOLEAN_OPERATION, ELLIPSE, STAR, POLYGON, LINE?
+  → YES: ✅ ELIGIBLE for SVG — check spec first (Step 5d)
+  → NO: continue ↓
+
+Is the node FRAME/GROUP/COMPONENT/INSTANCE?
+  → Has ANY TEXT descendant?
+      → YES: ❌ INELIGIBLE — traverse to find the pure visual child
+      → NO: ✅ ELIGIBLE — prefer innermost IMAGE/VECTOR child over parent
+  → Otherwise: ❌ INELIGIBLE — render in CSS
+```
+
+**Principle of specificity:** Always prefer the innermost node that is the actual illustration or image. Never download a container when a child IMAGE or VECTOR node can serve.
+
+### Step 5c — Download IMAGE nodes
+
+For batch export:
+
+```
+export_section_assets({ nodeId: "<image-node-id>", format: "PNG", scale: 2 })
 ```
 
 ```bash
 curl -o assets/<name>@2x.png "<downloadUrl>"
 ```
 
-For a single node:
+For single node:
 
 ```
-get_screenshot({ nodeId: "<specific-image-node-id>", format: "PNG", scale: 2 })
+get_screenshot({ nodeId: "<image-node-id>", format: "PNG", scale: 2 })
 ```
 
 ```bash
 curl -o assets/<name>@2x.png "<downloadUrl>"
 ```
 
-### Step 5d — Write SVG inline assets
+> ⚠️ URLs expire in 10 minutes — curl immediately after each export call.
 
-Vectors from `get_slice_spec` already include inline SVG markup. Write those directly to `assets/` without making additional API calls. Only call `get_svg` for vectors missing from the spec.
+### Step 5d — Extract SVGs (spec first, API fallback)
+
+1. Check the `get_slice_spec` response for inline SVG markup on the vector node (field `svgMarkup`, `svgData`, or look for SVG content in the node data).
+2. If present → write directly to `assets/<name>.svg`. **No API call needed.**
+3. If missing → call `get_svg` as fallback only:
+
+```
+get_svg({ nodeId: "<vector-node-id>" })
+```
+
+> Note: `get_svg` on INSTANCE nodes may return clip-path IDs from the master component — trust the node name rather than internal IDs.
+
+### Step 5e — Asset manifest (required before Stage C)
+
+Write a manifest listing every asset: node ID, node type, file path. If a file is not on this list, it does not exist, and the HTML must not reference it.
 
 ---
 
-## Phase 6 — CSS Extraction
+## Phase 6 — Build HTML
+*[Stage C — sequential, starts after Stage B completes]*
+
+### Step 6a — Scaffold (optional)
 
 ```
-get_css({ nodeId })              # dimensions, flex, color, padding, radius
-get_layout_spec({ nodeId })      # auto-layout direction, gap, alignment, sizing mode
-get_responsive_behavior({ nodeId })  # constraints, grow flags, min/max
+to_html({
+  nodeId: "$ARGUMENTS",
+  responsive: true,
+  includeSvgPaths: true,
+  assetPaths: "assets/"
+})
 ```
 
-Add only when visually needed:
+`to_html` is **optional** — it produces a scaffold that needs cleanup. If you are comfortable building HTML directly from the `get_slice_spec` tree (which already has all layout, spacing, typography, colors), skip `to_html` and build directly. Direct-from-spec HTML requires fewer fixups and is often faster.
+
+If you use the scaffold, apply in order:
+
+1. Replace hardcoded colors → CSS custom properties from Phase 3
+2. Verify asset paths match the Phase 5 manifest — fix any mismatches
+3. Fill in real copy from Phase 4
+4. Override any scaffold values that conflict with spec data
+
+> ⚠️ Do **not** use `to_html_page` — its response is truncated. Always scope to a specific node ID.
+
+### Step 6b — Building HTML from spec
+
+Every node in the `get_slice_spec` tree has a `styles` object. Use it directly:
+
+| `styles` field | CSS output |
+|---|---|
+| `fills[].type === "SOLID"` | `background-color` |
+| `fills[].type === "GRADIENT_*"` | `background` |
+| `layoutMode === "HORIZONTAL"` | `display: flex; flex-direction: row` |
+| `layoutMode === "VERTICAL"` | `display: flex; flex-direction: column` |
+| `itemSpacing` | `gap` |
+| `paddingTop/Right/Bottom/Left` | `padding` |
+| `primaryAxisAlignItems` | `justify-content` (MIN→flex-start, MAX→flex-end, CENTER→center, SPACE_BETWEEN→space-between) |
+| `counterAxisAlignItems` | `align-items` |
+| `constraints.horizontal` | `position: absolute` placement for non-flex children |
+| `effects[].type === "DROP_SHADOW"` | `box-shadow` |
+| `cornerRadius` | `border-radius` |
+| `fontSize`, `fontName`, `lineHeight` | Typography properties |
+| `characters` | Text content |
+
+For VECTOR/ELLIPSE/STAR nodes: render as `<img src="assets/<name>.svg">` or inline `<svg>`. Do not attempt to reproduce in CSS.
+
+### Step 6c — Fallback CSS tools (use only for nodes NOT in spec)
+
+For nodes discovered or added after Phase 2 (e.g. dynamic content, new instances):
 
 ```
-get_effect_spec({ nodeId })      # shadows, blurs
-get_stroke_spec({ nodeId })      # borders
-get_corner_radii({ nodeId })     # mixed border-radius
+get_node_styles({ nodeId })   ← all 6 specs in one shot
 ```
+
+Or individual fallbacks:
+
+```
+get_css({ nodeId })
+get_layout_spec({ nodeId })
+get_responsive_behavior({ nodeId })
+get_effect_spec({ nodeId })
+get_stroke_spec({ nodeId })
+get_corner_radii({ nodeId })
+```
+
+> **Never call these for nodes already in the `get_slice_spec` tree.** The data is already there.
+
+### Step 6d — Design execution
+
+**Typography as personality.** Font pairing and type scale define the page's character. Family, weight, size, line-height, letter-spacing, and color must all match. If a font won't load, find the correct CDN import.
+
+**Structure encodes meaning.** Every layout decision in the Figma exists for a reason. Use `gap` not margins for auto-layout. Preserve the visual hierarchy.
+
+**Restraint over decoration.** Only add motion or hover states where they serve the interaction. Respect `prefers-reduced-motion`.
+
+**Critique before shipping.** Does the rendered page look like the Figma frame or a generic template? If generic, identify what was flattened and fix it.
+
+### Step 6e — Responsive implementation (mandatory)
+
+- Containers: `width: 100%` + `max-width` — never hardcoded pixel widths
+- Convert fixed Figma widths → `%`, `vw`, or `clamp()`
+- Spacing and font sizes: `rem`, `em`, or `clamp(min, preferred, max)`
+- Horizontal layouts that overflow at small screens: `flex-wrap: wrap`
+- Images: `max-width: 100%; height: auto`
+- Breakpoints: mobile (≤480px), tablet (481–1024px), desktop (>1024px)
+- The Figma frame is the **desktop reference** — scale down from there
 
 ---
 
-## Phase 7 — Build HTML
+## Phase 7 — Visual Fidelity Check (≥95% target)
+*[Stage C — sequential, after Phase 6]*
 
-```
-to_html({ nodeId: "$ARGUMENTS" })
-```
+### Step 7a — Screenshot the implementation
 
-Use the output as a scaffold. Then:
+Render HTML at Figma frame dimensions. Save as `output/implementation@2x.png`.
 
-1. Replace hardcoded colors → CSS custom properties (from Phase 3)
-2. Replace placeholder image paths → downloaded asset paths (from Phase 5)
-3. Fill in real copy (from Phase 4)
-4. Verify all asset paths resolve correctly before proceeding
+### Step 7b — Side-by-side comparison
 
-> ⚠️ Do **not** use `to_html_page` — its response is truncated and will produce incomplete output. Always call `to_html` scoped to a specific node ID.
-
-### Responsive Implementation (mandatory)
-
-The implementation **must be fully responsive** across all screen sizes. Never use fixed pixel widths on layout containers.
-
-Guidelines:
-- Use `width: 100%` / `max-width` on containers — never hardcoded `width: 375px` etc.
-- Convert fixed Figma widths to `%`, `vw`, or `clamp()` where appropriate
-- Use `gap`, `padding`, and `font-size` with relative units (`rem`, `em`, `clamp()`) instead of fixed `px` where the design allows scaling
-- Auto-layout rows that would overflow on small screens → `flex-wrap: wrap`
-- Images: always `max-width: 100%; height: auto`
-- Typography: use `clamp(min, preferred, max)` for headings that need to scale
-- Add breakpoints for at minimum: mobile (≤480px), tablet (481–1024px), desktop (>1024px)
-- The Figma frame dimensions are the **desktop reference** — scale down gracefully from there
-
----
-
-## Phase 8 — Visual Fidelity Check (≥95% target)
-
-### Step 8a — Screenshot the implementation
-
-Render the HTML implementation in a browser or headless renderer and capture a screenshot at the same dimensions as the Figma frame. Save it as `output/implementation@2x.png`.
-
-### Step 8b — Side-by-side comparison
-
-Place both screenshots side by side and perform a structured diff across these dimensions:
+Compare `reference/design-reference@2x.png` against `output/implementation@2x.png`:
 
 | Dimension | Check |
 |---|---|
 | **Layout** | Spacing, alignment, padding, margins match |
 | **Typography** | Font family, size, weight, line-height, color match |
-| **Colors** | All fills, backgrounds, and borders match |
-| **Assets** | All images and illustrations are present and correctly placed |
+| **Colors** | All fills, backgrounds, borders match — no hardcoded values where tokens exist |
+| **Assets** | All images and illustrations present, correctly placed, correct node used |
 | **Sizing** | Component dimensions match the design |
 | **Effects** | Shadows, borders, radius match |
-| **Responsiveness** | Layout adapts correctly at mobile (≤480px), tablet (481–1024px), and desktop (>1024px) — no overflow, no broken layout, no fixed-width containers |
+| **Responsiveness** | No overflow, no broken layout, no fixed-width containers at mobile/tablet/desktop |
 
-Assign a fidelity score per dimension (0–100%) and calculate overall fidelity.
+### Step 7c — Gate check
 
-### Step 8c — Gate check
+- **≥ 95% overall** → Done. Present the implementation.
+- **< 95%** → Identify specific deltas, fix them, repeat from Step 7a.
 
-- **≥ 95% overall fidelity across all dimensions including responsiveness** → Done. Present the implementation.
-- **< 95%** → Identify specific deltas, fix them, and repeat from Step 8a.
+**Never present the implementation until fidelity is ≥ 95%.**
 
-**Never present the implementation to the user until fidelity is ≥ 95%.**
-
-Common issues to check when fidelity is low:
-- CSS custom properties not applied (hardcoded values still present)
-- Wrong asset node downloaded (container instead of inner image)
-- Auto-layout gap/direction wrong → re-run `get_layout_spec`
-- Font not loading → check typography tokens for font-family + fallback
-- Shadow/stroke missing → run `get_effect_spec` / `get_stroke_spec`
-- Fixed `width` on containers causing overflow on small screens → use `max-width` + `width: 100%`
-- Missing `flex-wrap` on horizontal layouts → breaks at narrow viewports
-- Images not fluid → add `max-width: 100%; height: auto`
+Common issues:
+- Hardcoded colors → replace with CSS custom properties
+- Wrong asset (container instead of inner node) → re-run eligibility test
+- Auto-layout direction wrong → re-check `styles.layoutMode` in spec
+- Font not loading → find CDN import for `styles.fontName.family`
+- Shadow/stroke missing → check `styles.effects` / `styles.strokes` in spec
+- Fixed width on containers → `max-width` + `width: 100%`
+- Missing `flex-wrap` on rows → breaks at narrow viewports
+- Images not fluid → `max-width: 100%; height: auto`
+- Signature design element flattened → restore it
 
 ---
 
 ## Quick Reference
 
-| Need | Tool |
-|---|---|
-| Reference screenshot | `get_screenshot` on the root frame |
-| Full structure + layout + SVGs | `get_slice_spec` |
-| Complete tree without truncation | `get_node_full` |
-| Design tokens | `get_variable_tokens`, `get_typography_tokens` |
-| All text in frame | `get_text_content` |
-| Which nodes have assets | `get_exportable_nodes` |
-| Inspect a specific child node | `get_node_full` on child ID |
-| Batch raster export | `export_section_assets` |
-| Single node PNG | `get_screenshot` |
-| SVG strings (fallback) | `get_svg` |
-| CSS per node | `get_css`, `get_layout_spec` |
-| HTML scaffold | `to_html` |
-| Implementation screenshot | headless browser / screenshot tool |
+| Need | Stage | Tool |
+|---|---|---|
+| Reference screenshot | A / Sub-agent 1 | `get_screenshot` on root frame |
+| Frame overview (sections, colors, fonts, asset count) | A / Sub-agent 2 | `get_frame_summary` |
+| Full node tree (single source of truth) | A / Sub-agent 2 | `get_slice_spec` (use `excludeVectorPaths: true`, `maxDepth`) |
+| Full tree without truncation | A / Sub-agent 2 | `get_node_full` |
+| Design tokens | A / Sub-agent 1 | `get_variable_tokens`, `get_typography_tokens` (skip if hasTokens: false) |
+| All text in frame | A / Sub-agent 1 | `get_text_content` |
+| Placeholder check | A / Sub-agent 1 | `find_placeholders({ nodeId })` — optional, only if text looks suspicious |
+| SVG extraction | B / Sub-agent 3 | From spec first; `get_svg` as fallback only |
+| Raster export (IMAGE only) | B / Sub-agent 3 | `export_section_assets`, `get_screenshot` |
+| Asset candidates (fallback) | B / Sub-agent 3 | `get_exportable_nodes` — only if spec doesn't identify IMAGE nodes |
+| Inspect deep child node | B / Sub-agent 3 | `get_node_full` on child ID |
+| CSS for nodes NOT in spec (fallback) | C | `get_node_styles({ nodeId })` |
+| HTML scaffold (optional) | C | `to_html({ nodeId, responsive, includeSvgPaths, assetPaths })` |
+| Implementation screenshot | C | headless browser / screenshot tool |
