@@ -75,7 +75,8 @@ export async function handleGetTextContent(params: Record<string, unknown>): Pro
   return { pages: textMap }
 }
 
-export async function handleFindPlaceholders(_params: Record<string, unknown>): Promise<unknown> {
+export async function handleFindPlaceholders(params: Record<string, unknown>): Promise<unknown> {
+  const nodeId = params.nodeId as string | undefined
   const patterns = [
     { label: 'lorem_ipsum', regex: /lorem\s+ipsum/i },
     { label: 'placeholder', regex: /placeholder/i },
@@ -85,6 +86,30 @@ export async function handleFindPlaceholders(_params: Record<string, unknown>): 
     { label: 'your_', regex: /your\s+(text|title|message|name|email|content)/i },
   ]
   const results: Array<{ nodeId: string; name: string; text: string; page: string; matched: string }> = []
+
+  if (nodeId) {
+    const root = await figma.getNodeByIdAsync(nodeId)
+    if (!root) throw new Error(`Node not found: ${nodeId}`)
+    const walk = (n: BaseNode): void => {
+      if (n.type === 'TEXT') {
+        try {
+          const text = (n as TextNode).characters
+          for (const pat of patterns) {
+            if (pat.regex.test(text)) {
+              results.push({ nodeId: n.id, name: n.name, text, page: 'scoped', matched: pat.label })
+              break
+            }
+          }
+        } catch (_e) {}
+      }
+      if ('children' in n) {
+        for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) walk(child)
+      }
+    }
+    walk(root)
+    return { placeholders: results, scopedTo: nodeId }
+  }
+
   await walkAllPages((node, pageName) => {
     if (node.type !== 'TEXT') return
     try {
