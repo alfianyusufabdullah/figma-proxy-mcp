@@ -12,9 +12,12 @@ export async function handleGetVariables(_params: Record<string, unknown>): Prom
 
 export async function handleGetVariableTokens(_params: Record<string, unknown>): Promise<unknown> {
   const collections = await figma.variables.getLocalVariableCollectionsAsync()
+  if (collections.length === 0) {
+    return { hasTokens: false, reason: 'No variable collections defined in this file', collections: [] }
+  }
   const allVars = await figma.variables.getLocalVariablesAsync()
   const varMap = new Map(allVars.map((v) => [v.id, v]))
-  return Promise.all(
+  const resolved = await Promise.all(
     collections.map(async (c) => ({
       id: c.id,
       name: c.name,
@@ -40,6 +43,7 @@ export async function handleGetVariableTokens(_params: Record<string, unknown>):
       }),
     }))
   )
+  return { hasTokens: true, collections: resolved }
 }
 
 export async function handleGetNodeVariableBindings(params: Record<string, unknown>): Promise<unknown> {
