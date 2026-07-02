@@ -6,6 +6,12 @@
     "dev:websocket": "cd websocket && npx tsx --watch src/index.ts",
     "dev:mcp": "cd mcp-server && npx tsx --watch src/index.ts",
     "build:plugin": "cd plugin && esbuild src/code.ts --bundle --outfile=dist/code.js --target=es2017",
-    "typecheck": "cd websocket && npx tsc --noEmit && cd ../mcp-server && npx tsc --noEmit"
+    "typecheck": "cd websocket && npx tsc --noEmit && cd ../mcp-server && npx tsc --noEmit",
+    "lint": "eslint plugin/src websocket/src mcp-server/src"
+  },
+  "devDependencies": {
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "typescript-eslint": "^8.62.1"
   }
 }
