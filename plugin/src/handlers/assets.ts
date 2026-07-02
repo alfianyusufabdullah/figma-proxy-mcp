@@ -105,6 +105,7 @@ export async function handleGetExportableNodes(params: Record<string, unknown>):
 
   type ExportableEntry = {
     nodeId: string; name: string; type: string
+    parentId: string | null; parentName: string | null
     exportSettings: Array<{ format: string; suffix: string; constraint?: unknown }>
     width: number; height: number; hasImageFill: boolean
   }
@@ -123,6 +124,7 @@ export async function handleGetExportableNodes(params: Record<string, unknown>):
     if ((hasEs || imgFill) && 'width' in n) {
       results.push({
         nodeId: n.id, name: n.name, type: n.type,
+        parentId: n.parent?.id ?? null, parentName: n.parent?.name ?? null,
         exportSettings: hasEs ? es! : [],
         width: (n as any).width ?? 0, height: (n as any).height ?? 0,
         hasImageFill: imgFill,

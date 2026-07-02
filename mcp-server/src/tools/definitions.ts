@@ -28,6 +28,8 @@ export const toolList = [
       properties: {
         nodeId: { type: 'string', description: 'Node ID — colon format "2650:516" or hyphen format "2650-516" from Figma URLs both work' },
         maxNodes: { type: 'number', description: 'Max nodes to return (default 500, max 5000). Use get_node_full to auto-expand.' },
+        excludeEmptyContainers: { type: 'boolean', description: 'Drop frames/groups/instances with no visual and no kept children (default false). Invisible nodes are always skipped.' },
+        includeOnlyExportable: { type: 'boolean', description: 'Keep only nodes with export settings, image fills, or vector geometry, plus their ancestors (default false).' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
       required: ['nodeId'],
@@ -47,11 +49,13 @@ export const toolList = [
   },
   {
     name: 'get_slice_spec',
-    description: 'Get a complete slice specification for a node: full tree + layout + all SVG vectors in one call',
+    description: 'Get a complete slice specification for a node: full tree + layout + all SVG vectors in one call. Empty wrapper containers are pruned by default to reduce output size.',
     inputSchema: {
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'Node ID of the frame or section to slice' },
+        excludeEmptyContainers: { type: 'boolean', description: 'Prune frames/groups/instances with no visual and no kept children (default true). Set false to keep the full structural tree.' },
+        includeOnlyExportable: { type: 'boolean', description: 'Keep only nodes with export settings, image fills, or vector geometry, plus their ancestors (default false).' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
       required: ['nodeId'],
@@ -374,7 +378,7 @@ export const toolList = [
   },
   {
     name: 'export_section_assets',
-    description: 'Export all image/exportable assets within a section. Without outputDir: returns downloadUrl per asset — save each with curl. With outputDir: writes files to disk (requires shared filesystem).',
+    description: 'Export all image/exportable assets within a section. Without outputDir: returns downloadUrl per asset — save each with curl. With outputDir: writes files to disk (requires shared filesystem). Returns a manifest mapping nodeId → fileName → nodeName → parentName → type → kind for explicit asset-to-node mapping.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -382,6 +386,7 @@ export const toolList = [
         outputDir: { type: 'string', description: 'Optional: write to this directory (shared filesystem only). Omit to get downloadUrls instead.' },
         format: { type: 'string', enum: ['PNG', 'SVG', 'JPG', 'PDF'], description: 'Export format (default PNG)' },
         scale: { type: 'number', description: 'Scale factor 0.5–4 (default 2)' },
+        prefix: { type: 'string', description: 'Optional context prefix prepended to every file name (e.g. "service-card-2") for descriptive, contextual naming.' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
       required: ['nodeId'],

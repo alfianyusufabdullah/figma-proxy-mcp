@@ -9,9 +9,9 @@ const ScaleSchema = z.number().min(0.5).max(4).describe('Scale factor 0.5–4. P
 export const toolSchemas = {
   get_document: z.object({ depth: DepthSchema, maxNodes: z.number().int().min(10).max(5000).optional(), fileKey: FileKeySchema }),
   get_selection: z.object({ fileKey: FileKeySchema }),
-  get_node: z.object({ nodeId: NodeIdSchema, maxNodes: z.number().int().min(10).max(5000).optional(), fileKey: FileKeySchema }),
+  get_node: z.object({ nodeId: NodeIdSchema, maxNodes: z.number().int().min(10).max(5000).optional(), excludeEmptyContainers: z.boolean().optional(), includeOnlyExportable: z.boolean().optional(), fileKey: FileKeySchema }),
   get_node_full: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
-  get_slice_spec: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
+  get_slice_spec: z.object({ nodeId: NodeIdSchema, excludeEmptyContainers: z.boolean().optional(), includeOnlyExportable: z.boolean().optional(), fileKey: FileKeySchema }),
   get_styles: z.object({ fileKey: FileKeySchema }),
   get_metadata: z.object({ fileKey: FileKeySchema }),
   get_design_context: z.object({ nodeIds: z.array(NodeIdSchema).optional(), depth: DepthSchema, maxNodes: z.number().int().min(10).max(5000).optional(), fileKey: FileKeySchema }),
@@ -48,5 +48,5 @@ export const toolSchemas = {
   get_typography_tokens: z.object({ fileKey: FileKeySchema }),
   get_frame_summary: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
   get_exportable_nodes: z.object({ nodeId: NodeIdSchema.optional(), fileKey: FileKeySchema }),
-  export_section_assets: z.object({ nodeId: NodeIdSchema, outputDir: z.string().optional(), format: FormatSchema, scale: ScaleSchema, fileKey: FileKeySchema }),
+  export_section_assets: z.object({ nodeId: NodeIdSchema, outputDir: z.string().optional(), format: FormatSchema, scale: ScaleSchema, prefix: z.string().optional(), fileKey: FileKeySchema }),
 }

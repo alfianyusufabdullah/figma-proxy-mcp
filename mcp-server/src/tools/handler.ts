@@ -20,6 +20,11 @@ const CACHE_TTL: Partial<Record<string, number>> = {
   get_typography_tokens: 60_000,
 }
 
+function pngSize(buf: Buffer): { width: number; height: number } | undefined {
+  if (buf.length < 24 || buf.readUInt32BE(0) !== 0x89504e47) return undefined
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
+}
+
 const MUTATION_TOOLS = new Set(['set_text_content', 'set_node_visibility', 'set_solid_fill', 'create_text', 'set_node_properties'])
 const VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'ELLIPSE', 'LINE'])
 
@@ -52,7 +57,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('get_selection', {}, fileKey)
           break
         case 'get_node':
-          data = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes: parsed.maxNodes }, fileKey)
+          data = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes: parsed.maxNodes, excludeEmptyContainers: parsed.excludeEmptyContainers, includeOnlyExportable: parsed.includeOnlyExportable }, fileKey)
           break
         case 'get_styles':
           data = await rpc('get_styles', {}, fileKey)
@@ -88,8 +93,10 @@ export function registerToolHandler(srv: Server): void {
             data = {
               screenshots: screenshots.map(s => {
                 if (s.format === 'SVG') return { nodeId: s.nodeId, format: s.format, svg: s.data }
-                const id = storeFile(Buffer.from(s.data, 'base64'), mimeOf(s.format))
-                return { nodeId: s.nodeId, format: s.format, downloadUrl: `${MCP_PUBLIC_URL}/dl/${id}` }
+                const buf = Buffer.from(s.data, 'base64')
+                const id = storeFile(buf, mimeOf(s.format))
+                const size = s.format === 'PNG' ? pngSize(buf) : undefined
+                return { nodeId: s.nodeId, format: s.format, downloadUrl: `${MCP_PUBLIC_URL}/dl/${id}`, ...size }
               })
             }
           }
@@ -210,14 +217,17 @@ export function registerToolHandler(srv: Server): void {
           const outputDir = parsed.outputDir as string | undefined
           const format = (parsed.format as string | undefined) ?? 'PNG'
           const scale = (parsed.scale as number | undefined) ?? 2
+          const prefix = parsed.prefix as string | undefined
           const ext = format === 'SVG' ? 'svg' : format === 'PDF' ? 'pdf' : format === 'JPG' ? 'jpg' : 'png'
           const mime = format === 'SVG' ? 'image/svg+xml' : format === 'JPG' ? 'image/jpeg' : format === 'PDF' ? 'application/pdf' : 'image/png'
+          const safePrefix = prefix ? prefix.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/-+$/, '') + '-' : ''
           const discovery = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey) as {
-            exportableNodes: Array<{ nodeId: string; name: string }>
+            exportableNodes: Array<{ nodeId: string; name: string; type: string; parentName: string | null; hasImageFill: boolean }>
           }
           if (outputDir) mkdirSync(outputDir, { recursive: true })
           const exported: Array<{ nodeId: string; name: string; savedTo?: string; downloadUrl?: string }> = []
           const errors: Array<{ nodeId: string; name: string; error: string }> = []
+          const manifest: Array<{ nodeId: string; fileName: string; nodeName: string; parentName: string | null; type: string; kind: string }> = []
           for (const node of discovery.exportableNodes) {
             try {
               const result = await rpc('get_screenshot', { nodeId: node.nodeId, format, scale }, fileKey) as {
@@ -225,9 +235,9 @@ export function registerToolHandler(srv: Server): void {
               }
               const s = result.screenshots[0]
               if (!s) continue
-              const safeName = node.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()
+              const fileName = `${safePrefix}${node.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}.${ext}`
               if (outputDir) {
-                const filePath = join(outputDir, `${safeName}.${ext}`)
+                const filePath = join(outputDir, fileName)
                 if (format === 'SVG') writeFileSync(filePath, s.data, 'utf8')
                 else writeFileSync(filePath, Buffer.from(s.data, 'base64'))
                 exported.push({ nodeId: node.nodeId, name: node.name, savedTo: filePath })
@@ -237,18 +247,25 @@ export function registerToolHandler(srv: Server): void {
                   : storeFile(Buffer.from(s.data, 'base64'), mime)
                 exported.push({ nodeId: node.nodeId, name: node.name, downloadUrl: `${MCP_PUBLIC_URL}/dl/${dlId}` })
               }
+              manifest.push({
+                nodeId: node.nodeId, fileName, nodeName: node.name,
+                parentName: node.parentName, type: node.type,
+                kind: node.hasImageFill ? 'IMAGE' : 'VECTOR',
+              })
             } catch (e) {
               errors.push({ nodeId: node.nodeId, name: node.name, error: (e as Error).message })
             }
           }
-          data = { exported, errors }
+          data = { exported, errors, manifest }
           break
         }
         case 'get_node_full': {
           let maxNodes = 500
           let result: unknown
+          const excludeEmptyContainers = (parsed.excludeEmptyContainers as boolean | undefined) ?? true
+          const includeOnlyExportable = parsed.includeOnlyExportable as boolean | undefined
           while (true) {
-            result = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes }, fileKey)
+            result = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
             if (!(result as { truncated?: boolean }).truncated || maxNodes >= 5000) break
             maxNodes = Math.min(maxNodes * 2, 5000)
           }
@@ -257,10 +274,12 @@ export function registerToolHandler(srv: Server): void {
         }
         case 'get_slice_spec': {
           const nodeId = parsed.nodeId as string
+          const excludeEmptyContainers = (parsed.excludeEmptyContainers as boolean | undefined) ?? true
+          const includeOnlyExportable = parsed.includeOnlyExportable as boolean | undefined
           let maxNodes = 500
           let nodeResult: unknown
           while (true) {
-            nodeResult = await rpc('get_node', { nodeId, maxNodes }, fileKey)
+            nodeResult = await rpc('get_node', { nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
             if (!(nodeResult as { truncated?: boolean }).truncated || maxNodes >= 5000) break
             maxNodes = Math.min(maxNodes * 2, 5000)
           }
