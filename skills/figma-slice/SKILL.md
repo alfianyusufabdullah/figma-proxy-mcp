@@ -1,7 +1,6 @@
 ---
-name: figma-slice
-description: Slice a Figma frame into production code and assets using figma-proxy-mcp, with visual fidelity verification. Use whenever implementing a Figma design, exporting assets, extracting CSS, or converting a frame to HTML. Trigger on: "slice this design", "implement this from Figma", "export assets", "build from Figma", "get CSS from Figma", "implement this design" — even if the user doesn't say "slice" explicitly. Always use this skill when a Figma node ID or frame is mentioned alongside any intent to implement or export.
-compatibility: Requires figma-proxy-mcp MCP server. Add: claude mcp add figma --transport http http://localhost:3001/mcp
+name: find-slice
+description: Slice a Figma frame into production-ready HTML/CSS with ≥95% visual fidelity via the figma-proxy-mcp tools.
 ---
 
 Slice a Figma frame into production-ready code with ≥95% visual fidelity. `$ARGUMENTS` is the node ID — omit to use the current selection via `get_selection`.

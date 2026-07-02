@@ -1,24 +1,75 @@
+<a id="readme-top"></a>
+
+<div align="center">
+
 # figma-proxy-mcp
 
-**Live Figma access for AI agents via MCP.** No REST API token. No rate limits. No stale exports.
+**Live Figma access for AI agents via MCP.**
+No REST API token. No rate limits. No stale exports.
 
-An AI agent connected to this server can read design tokens, extract CSS, export assets, audit copy, and write text content — all against the file currently open in Figma Desktop.
+[![Build][build-shield]][build-url]
+[![Node][node-shield]][node-url]
+[![MCP][mcp-shield]][mcp-url]
+[![Figma Plugin][figma-shield]][figma-url]
+
+[Report Bug][issues-url] · [Request Feature][issues-url]
+
+</div>
 
 ---
 
-## Table of contents
+## Why this exists
 
+Every existing path from an AI agent to a Figma file goes through the REST API: generate a token, respect rate limits, and read a version of the file that may already be stale. This project takes a different route — a plugin running inside Figma Desktop, bridged to your agent over a local proxy.
+
+|  | Figma REST API | figma-proxy-mcp |
+|---|---|---|
+| Auth | Personal access token | None — plugin runs in your own session |
+| Rate limits | Yes, per-token | None |
+| Data freshness | Last saved version | Live document, including unsaved edits |
+| Write access | No (read-only endpoints) | Yes — text content, fills, visibility, geometry |
+| Selection awareness | No | Yes — reads your current selection |
+
+An agent connected to this server can read design tokens, extract CSS, export assets, audit copy, and write text content — all against the file currently open in Figma Desktop.
+
+<details>
+<summary>Table of contents</summary>
+
+- [Why this exists](#why-this-exists)
+- [Quickstart](#quickstart)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
-- [Connecting an AI client](#connecting-an-ai-client)
+- [Connecting an AI Tools](#connecting-an-ai-tools)
+- [Slicing with the bundled skill](#slicing-with-the-bundled-skill)
 - [Configuration](#configuration)
 - [Tool reference](#tool-reference)
-- [Recommended workflows](#recommended-workflows)
-- [Multi-file support](#multi-file-support)
-- [CI/CD](#cicd)
+- [Contributing](#contributing)
+
+</details>
 
 ---
+
+## Quickstart
+
+Sixty seconds from clone to connected agent:
+
+```bash
+# 1. Start the servers
+docker compose up -d
+
+# 2. Build and load the plugin (once)
+cd plugin && npm install && npm run build
+#    → Figma Desktop: Plugins → Development → Import plugin from manifest
+#    → select plugin/manifest.json, run the plugin
+
+# 3. Connect your agent
+claude mcp add figma --transport http http://localhost:3001/mcp
+```
+
+Ask your agent to `get_metadata` — if it returns your file name, you're live.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Architecture
 
@@ -45,7 +96,7 @@ AI Agent (Claude, Cursor, Windsurf, …)
         Live Figma File
 ```
 
----
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Prerequisites
 
@@ -53,16 +104,17 @@ AI Agent (Claude, Cursor, Windsurf, …)
 - **Docker + Docker Compose** — for containerised deployment
 - **Figma Desktop** — the plugin requires the desktop Plugin API (not supported in the browser)
 
----
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Installation
 
 ### Option A — Docker (recommended)
 
 ```bash
-cp .env.example .env   # set MCP_API_KEY and MCP_PUBLIC_URL if needed
 docker compose up
 ```
+
+Set `MCP_API_KEY` and `MCP_PUBLIC_URL` in your environment (or an `.env` file) if you need authentication or remote access — see [Configuration](#configuration).
 
 ### Option B — Local
 
@@ -86,9 +138,13 @@ cd plugin && npm install && npm run build
 
 The plugin reconnects automatically and persists the proxy URL across sessions.
 
----
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-## Connecting an AI client
+## Connecting an AI Tools
+
+The MCP server speaks **Streamable HTTP** at `http://localhost:3001/mcp`. Any MCP client that supports HTTP transport can connect — the configurations below cover the common ones.
+
+> Before connecting: the two servers must be running and the Figma plugin must be active (green indicator) in Figma Desktop. Without the plugin, the client connects fine but every tool call returns *"No Figma plugin connected. Run the plugin in Figma first."*
 
 ### Claude Code
 
@@ -96,9 +152,24 @@ The plugin reconnects automatically and persists the proxy URL across sessions.
 claude mcp add figma --transport http http://localhost:3001/mcp
 ```
 
+If `MCP_API_KEY` is set on the server, add the header:
+
+```bash
+claude mcp add figma --transport http http://localhost:3001/mcp \
+  --header "Authorization: Bearer YOUR_API_KEY"
+```
+
+Verify with `claude mcp list` — `figma` should report ✔ connected.
+
 ### Claude Desktop
 
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+Edit the config file for your OS:
+
+| OS | Path |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
 
 ```json
 {
@@ -110,18 +181,77 @@ claude mcp add figma --transport http http://localhost:3001/mcp
 }
 ```
 
-### Cursor / Windsurf
+Restart Claude Desktop after saving — MCP servers are only loaded at startup. The `figma` server appears under the tools (🔨) icon when connected.
 
-Add `http://localhost:3001/mcp` as an MCP server in the IDE settings.
+### Cursor
+
+Create or edit `.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` for all projects):
+
+```json
+{
+  "mcpServers": {
+    "figma": {
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+Then enable the server under **Settings → MCP** — it should list the available tools.
+
+### Windsurf
+
+Edit `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "figma": {
+      "serverUrl": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+Refresh from **Settings → Cascade → MCP Servers** after saving.
 
 ### Remote or tunneled server
+
+To reach the server from another machine, expose port 3001 through a tunnel (Cloudflare Tunnel, ngrok, Tailscale Funnel, …), then point the client at the public URL:
 
 ```bash
 claude mcp add figma --transport http https://your-tunnel.example.com/mcp \
   --header "Authorization: Bearer YOUR_API_KEY"
 ```
 
----
+Two server-side settings matter here (see [Configuration](#configuration)):
+
+- **`MCP_API_KEY`** — always set this on a publicly reachable server; without it anyone with the URL can read and modify your open Figma file.
+- **`MCP_PUBLIC_URL`** — set to the tunnel URL so asset `downloadUrl`s returned by export tools are reachable from the agent's machine.
+
+### Smoke test
+
+Regardless of client, ask the agent to call `get_metadata`. A correct setup returns the open file's name, page list, and file key. If it fails:
+
+| Symptom | Likely cause |
+|---|---|
+| Connection refused | MCP server not running on 3001 |
+| 401 Unauthorized | `MCP_API_KEY` set but header missing/wrong |
+| "No Figma plugin connected" | Plugin not running in Figma Desktop, or it can't reach the proxy on 3000 |
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Slicing with the bundled skill
+
+For design-to-code slicing, don't drive the tools by hand — this repo ships a `figma-slice` skill that orchestrates the full pipeline (reference screenshot, spec extraction, asset export, HTML build, and a ≥95% visual fidelity gate). Install it with:
+
+```bash
+npx skills add alfianyusufabdullah/figma-proxy-mcp
+```
+
+Then invoke it from your agent with a node ID, or with nothing to slice the current Figma selection.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Configuration
 
@@ -132,7 +262,7 @@ claude mcp add figma --transport http https://your-tunnel.example.com/mcp \
 | `MCP_API_KEY` | — | When set, all `/mcp` requests must carry `Authorization: Bearer <key>` |
 | `MCP_PUBLIC_URL` | `http://localhost:3001` | Public base URL of the MCP server. Used to construct `downloadUrl` values returned by image export tools. Must be set to your tunnel URL when the server is accessed remotely. |
 
----
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Tool reference
 
@@ -228,90 +358,29 @@ This pattern works uniformly across all deployment topologies — local, Docker,
 | `to_html_page` | `page` | Convert an entire Figma page to a standalone HTML document |
 | `export_json` | `nodeId` | Export a node as Figma REST API JSON (v1 format) |
 
----
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-## Recommended workflows
+## Contributing
 
-### Design-to-code handoff
+Bug reports and feature requests are welcome — [open an issue][issues-url]. For code changes:
 
-```
-1. get_design_context({ nodeId: "<section>", depth: 2 })
-   → section structure, spacing, color tokens
-
-2. get_css({ nodeId: "<component>" })
-   get_layout_spec({ nodeId: "<component>" })
-   → implementation-ready CSS
-
-3. get_variable_tokens({})
-   → design token definitions for CSS custom properties
+```bash
+npm install                 # root dev tooling (ESLint)
+npm run lint                # type-aware lint across all three services
+npm run typecheck           # tsc --noEmit for websocket + mcp-server
 ```
 
-### Full-page slice
+Keep pull requests scoped to one change, and make sure `lint` and `typecheck` pass before submitting.
 
-```
-1. get_text_content({ nodeId: "<page-frame>" })
-   → all copy scoped to this frame
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-2. get_exportable_nodes({ nodeId: "<page-frame>" })
-   → list of all image/illustration nodes
-
-3. export_section_assets({ nodeId: "<page-frame>", format: "PNG", scale: 2 })
-   → { exported: [{ name: "hero", downloadUrl: "…" }, { name: "illus-seo", downloadUrl: "…" }] }
-
-4. curl -o assets/hero.png "<downloadUrl>"
-   → asset saved, no base64, no decoding
-```
-
-### Copy audit
-
-```
-1. find_placeholders({})
-   → all lorem ipsum, {{tokens}}, [brackets] across every page
-
-2. check_text_consistency({ group_by: "page" })
-   → pages where heading/body styles deviate from the baseline
-
-3. set_text_content({ nodeId: "<id>", text: "Production copy" })
-   → update live in Figma
-```
-
-### Component exploration
-
-```
-1. get_slice_spec({ nodeId: "<component-frame>" })
-   → node tree + layout + all vector SVGs in one response
-
-2. get_instance_overrides({ nodeId: "<instance>" })
-   → which props have been overridden and their values
-
-3. get_node_variable_bindings({ nodeId: "<instance>" })
-   → every token bound to this node and its resolved value per mode
-```
-
----
-
-## Multi-file support
-
-When multiple Figma files are open with the plugin running in each, pass `fileKey` to route a call to a specific file:
-
-```json
-{ "tool": "get_document", "arguments": { "fileKey": "abc123XYZ" } }
-```
-
-Omit `fileKey` when only one file is connected — the proxy routes to the single active session automatically.
-
----
-
-## CI/CD
-
-`.github/workflows/docker-build-push.yml` builds both services and pushes to GitHub Container Registry on every push to `main`:
-
-```
-ghcr.io/<owner>/figma-proxy-mcp/mcp-server:latest
-ghcr.io/<owner>/figma-proxy-mcp/mcp-server:<sha>
-
-ghcr.io/<owner>/figma-proxy-mcp/websocket:latest
-ghcr.io/<owner>/figma-proxy-mcp/websocket:<sha>
-```
-
-No additional secrets required — the workflow uses the built-in `GITHUB_TOKEN`.
+<!-- MARKDOWN LINKS & IMAGES -->
+[build-shield]: https://img.shields.io/github/actions/workflow/status/alfianyusufabdullah/figma-proxy-mcp/docker-build-push.yml?branch=main&style=flat-square
+[build-url]: https://github.com/alfianyusufabdullah/figma-proxy-mcp/actions/workflows/docker-build-push.yml
+[node-shield]: https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white
+[node-url]: https://nodejs.org
+[mcp-shield]: https://img.shields.io/badge/MCP-Streamable%20HTTP-blueviolet?style=flat-square
+[mcp-url]: https://modelcontextprotocol.io
+[figma-shield]: https://img.shields.io/badge/Figma-Desktop%20Plugin-F24E1E?style=flat-square&logo=figma&logoColor=white
+[figma-url]: https://www.figma.com/plugin-docs/
+[issues-url]: https://github.com/alfianyusufabdullah/figma-proxy-mcp/issues
