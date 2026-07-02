@@ -37,7 +37,12 @@ export const toolSchemas = {
   get_colors: z.object({ fileKey: FileKeySchema }),
   find_text_nodes: z.object({ keyword: z.string().optional(), regex: z.string().optional(), fileKey: FileKeySchema }),
   get_text_content: z.object({ nodeId: NodeIdSchema.optional(), page: z.string().optional(), fileKey: FileKeySchema }),
-  set_text_content: z.object({ nodeId: NodeIdSchema, text: z.string(), fileKey: FileKeySchema }),
+  set_text_content: z.object({
+    nodeId: NodeIdSchema.optional(),
+    text: z.string().optional(),
+    updates: z.array(z.object({ nodeId: NodeIdSchema, text: z.string() })).min(1).optional(),
+    fileKey: FileKeySchema,
+  }).refine(v => v.updates !== undefined || (v.nodeId !== undefined && v.text !== undefined), { message: 'Provide nodeId + text, or updates[] for bulk' }),
   set_node_visibility: z.object({ nodeIds: z.array(NodeIdSchema), visible: z.boolean(), fileKey: FileKeySchema }),
   set_solid_fill: z.object({ nodeId: NodeIdSchema, color: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/), opacity: z.number().min(0).max(1).optional(), fileKey: FileKeySchema }),
   create_text: z.object({ text: z.string(), x: z.number().optional(), y: z.number().optional(), fontSize: z.number().optional(), parentId: NodeIdSchema.optional(), fileKey: FileKeySchema }),

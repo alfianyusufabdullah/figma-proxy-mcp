@@ -224,15 +224,26 @@ export const toolList = [
   },
   {
     name: 'set_text_content',
-    description: 'Replace text content of a text node',
+    description: 'Replace text content of one text node (nodeId + text), or many in one call (updates[])',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'Node ID of the text node' },
-        text: { type: 'string', description: 'New text content' },
+        nodeId: { type: 'string', description: 'Node ID of the text node (single mode)' },
+        text: { type: 'string', description: 'New text content (single mode)' },
+        updates: {
+          type: 'array',
+          description: 'Bulk mode: list of { nodeId, text }. Continues past per-node failures and returns per-node results.',
+          items: {
+            type: 'object',
+            properties: {
+              nodeId: { type: 'string', description: 'Node ID of the text node' },
+              text: { type: 'string', description: 'New text content' },
+            },
+            required: ['nodeId', 'text'],
+          },
+        },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
-      required: ['nodeId', 'text'],
     },
   },
   {

@@ -230,7 +230,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('get_text_content', { nodeId: parsed.nodeId, page: parsed.page }, fileKey)
           break
         case 'set_text_content':
-          data = await rpc('set_text_content', { nodeId: parsed.nodeId, text: parsed.text }, fileKey)
+          data = await rpc('set_text_content', { nodeId: parsed.nodeId, text: parsed.text, updates: parsed.updates }, fileKey)
           break
         case 'set_node_visibility':
           data = await rpc('set_node_visibility', { nodeIds: parsed.nodeIds, visible: parsed.visible }, fileKey)

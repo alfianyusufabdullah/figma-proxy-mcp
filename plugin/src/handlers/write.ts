@@ -24,12 +24,26 @@ async function loadAllFonts(tn: TextNode): Promise<void> {
   await Promise.all([...seen.values()].map(fn => figma.loadFontAsync(fn)))
 }
 
-export async function handleSetTextContent(params: Record<string, unknown>): Promise<unknown> {
-  assertEditor()
-  const nodeId = params.nodeId as string
-  const text = params.text as string
-  if (!nodeId || text === undefined) throw new Error('nodeId and text are required')
+type BulkResult = { nodeId: string; success: boolean; error?: string }
 
+async function runBulk<T extends { nodeId: string }>(
+  updates: T[],
+  applyOne: (update: T) => Promise<unknown>,
+): Promise<{ results: BulkResult[]; succeeded: number; failed: number }> {
+  const results: BulkResult[] = []
+  for (const update of updates) {
+    try {
+      await applyOne(update)
+      results.push({ nodeId: update.nodeId, success: true })
+    } catch (e) {
+      results.push({ nodeId: update.nodeId, success: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  const failed = results.filter(r => !r.success).length
+  return { results, succeeded: results.length - failed, failed }
+}
+
+async function setTextContentOne(nodeId: string, text: string): Promise<unknown> {
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node) throw new Error(`Node not found: ${nodeId}`)
 
@@ -54,6 +68,18 @@ export async function handleSetTextContent(params: Record<string, unknown>): Pro
   await loadAllFonts(tn)
   tn.characters = text
   return serializeNode(tn, { maxNodes: 100 })
+}
+
+export async function handleSetTextContent(params: Record<string, unknown>): Promise<unknown> {
+  assertEditor()
+  const updates = params.updates as Array<{ nodeId: string; text: string }> | undefined
+  if (updates && updates.length > 0) {
+    return runBulk(updates, u => setTextContentOne(u.nodeId, u.text))
+  }
+  const nodeId = params.nodeId as string
+  const text = params.text as string
+  if (!nodeId || text === undefined) throw new Error('nodeId and text are required (or pass updates[] for bulk)')
+  return setTextContentOne(nodeId, text)
 }
 
 export async function handleSetNodeVisibility(params: Record<string, unknown>): Promise<unknown> {
