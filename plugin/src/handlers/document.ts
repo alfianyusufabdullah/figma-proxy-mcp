@@ -1,18 +1,18 @@
 import { serializeNode, resetCount, wasTruncated, toHex } from '../serializer'
 import { getFileKey } from '../utils'
 
-export async function handleGetDocument(params: Record<string, unknown>): Promise<unknown> {
+export function handleGetDocument(params: Record<string, unknown>): unknown {
   resetCount()
   const page = figma.currentPage
   const depth = (params.depth as number) ?? 3
   const maxNodes = (params.maxNodes as number) ?? 500
   const nodes = page.children
     .filter((c) => c.visible !== false)
-    .map((c) => serializeNode(c as SceneNode, { depth, maxNodes }))
+    .map((c) => serializeNode(c, { depth, maxNodes }))
   return { pageName: page.name, nodes, truncated: wasTruncated() }
 }
 
-export async function handleGetSelection(_params: Record<string, unknown>): Promise<unknown> {
+export function handleGetSelection(_params: Record<string, unknown>): unknown {
   resetCount()
   const selection = figma.currentPage.selection.map((n) => serializeNode(n, { maxNodes: 100 }))
   return { selection, truncated: wasTruncated() }
@@ -48,7 +48,7 @@ export async function handleGetStyles(_params: Record<string, unknown>): Promise
   }
 }
 
-export async function handleGetMetadata(_params: Record<string, unknown>): Promise<unknown> {
+export function handleGetMetadata(_params: Record<string, unknown>): unknown {
   return {
     fileName: figma.root.name,
     currentPage: figma.currentPage.name,
@@ -68,7 +68,7 @@ export async function handleGetDesignContext(params: Record<string, unknown>): P
     return { nodes: nodes.filter(Boolean).map((n) => serializeNode(n as SceneNode, { depth, maxNodes })), truncated: wasTruncated() }
   }
   return {
-    nodes: page.children.filter((c) => c.visible !== false).map((c) => serializeNode(c as SceneNode, { depth, maxNodes })),
+    nodes: page.children.filter((c) => c.visible !== false).map((c) => serializeNode(c, { depth, maxNodes })),
     truncated: wasTruncated(),
   }
 }
@@ -87,7 +87,7 @@ export async function handleGetFrameSummary(params: Record<string, unknown>): Pr
   const sections: Array<{ id: string; name: string; type: string; bounds: { y: number; h: number } }> = []
   if ('children' in node) {
     for (const child of (node as ChildrenMixin).children) {
-      if ('visible' in child && !(child as SceneNode).visible) continue
+      if ('visible' in child && !(child).visible) continue
       const bounds = 'y' in child
         ? { y: (child as unknown as Record<string, number>).y, h: (child as unknown as Record<string, number>).height }
         : { y: 0, h: 0 }
@@ -103,7 +103,7 @@ export async function handleGetFrameSummary(params: Record<string, unknown>): Pr
   const walk = (n: BaseNode): void => {
     if ('fills' in n) {
       const fills = (n as GeometryMixin).fills
-      if (fills !== figma.mixed && Array.isArray(fills)) {
+      if (fills !== figma.mixed && fills) {
         for (const f of fills) {
           if (f.type === 'SOLID' && f.color) colors.add(toHex(f.color))
           if (f.type === 'IMAGE') imageCount++
@@ -112,16 +112,16 @@ export async function handleGetFrameSummary(params: Record<string, unknown>): Pr
     }
     if (n.type === 'TEXT') {
       try {
-        const t = n as TextNode
+        const t = n
         if (t.fontName !== figma.mixed) {
-          const fn = t.fontName as FontName
+          const fn = t.fontName
           if (!fontMap.has(fn.family)) fontMap.set(fn.family, { family: fn.family, weights: new Set(), sizes: new Set() })
           const entry = fontMap.get(fn.family)!
           const w = fn.style === 'Bold' ? 700 : fn.style === 'Medium' ? 500 : fn.style === 'SemiBold' ? 600 : fn.style === 'Light' ? 300 : 400
           entry.weights.add(w)
           if (t.fontSize !== figma.mixed && typeof t.fontSize === 'number') entry.sizes.add(t.fontSize)
         }
-      } catch (_e) {}
+      } catch {}
     }
     if (VECTOR_TYPES_SET.has(n.type)) vectorCount++
     if ('children' in n) {

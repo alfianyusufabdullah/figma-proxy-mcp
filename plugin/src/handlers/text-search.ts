@@ -6,9 +6,9 @@ export async function handleGetFonts(_params: Record<string, unknown>): Promise<
   await walkAllPages((node) => {
     if (node.type !== 'TEXT') return
     try {
-      const fontName = (node as TextNode).fontName as FontName
+      const fontName = (node).fontName as FontName
       fonts.add(`${fontName.family} ${fontName.style}`)
-    } catch (_e) {}
+    } catch {}
   })
   return { fonts: [...fonts].sort() }
 }
@@ -36,10 +36,10 @@ export async function handleFindTextNodes(params: Record<string, unknown>): Prom
   await walkAllPages((node, pageName) => {
     if (node.type !== 'TEXT') return
     try {
-      const text = (node as TextNode).characters
+      const text = (node).characters
       if (regex && regex.test(text)) results.push({ nodeId: node.id, name: node.name, text, page: pageName })
       else if (keyword && text.toLowerCase().includes(keyword)) results.push({ nodeId: node.id, name: node.name, text, page: pageName })
-    } catch (_e) {}
+    } catch {}
   })
   return { results }
 }
@@ -54,7 +54,7 @@ export async function handleGetTextContent(params: Record<string, unknown>): Pro
     const results: Array<{ nodeId: string; name: string; text: string }> = []
     const walk = (n: BaseNode): void => {
       if (n.type === 'TEXT') {
-        try { results.push({ nodeId: n.id, name: n.name, text: (n as TextNode).characters }) } catch (_e) {}
+        try { results.push({ nodeId: n.id, name: n.name, text: (n).characters }) } catch {}
       }
       if ('children' in n) {
         for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) walk(child)
@@ -69,8 +69,8 @@ export async function handleGetTextContent(params: Record<string, unknown>): Pro
     if (node.type !== 'TEXT') return
     try {
       if (!textMap[pageName]) textMap[pageName] = []
-      textMap[pageName].push({ nodeId: node.id, name: node.name, text: (node as TextNode).characters })
-    } catch (_e) {}
+      textMap[pageName].push({ nodeId: node.id, name: node.name, text: (node).characters })
+    } catch {}
   }, pageFilter)
   return { pages: textMap }
 }
@@ -93,14 +93,14 @@ export async function handleFindPlaceholders(params: Record<string, unknown>): P
     const walk = (n: BaseNode): void => {
       if (n.type === 'TEXT') {
         try {
-          const text = (n as TextNode).characters
+          const text = (n).characters
           for (const pat of patterns) {
             if (pat.regex.test(text)) {
               results.push({ nodeId: n.id, name: n.name, text, page: 'scoped', matched: pat.label })
               break
             }
           }
-        } catch (_e) {}
+        } catch {}
       }
       if ('children' in n) {
         for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) walk(child)
@@ -113,14 +113,14 @@ export async function handleFindPlaceholders(params: Record<string, unknown>): P
   await walkAllPages((node, pageName) => {
     if (node.type !== 'TEXT') return
     try {
-      const text = (node as TextNode).characters
+      const text = (node).characters
       for (const pat of patterns) {
         if (pat.regex.test(text)) {
           results.push({ nodeId: node.id, name: node.name, text, page: pageName, matched: pat.label })
           break
         }
       }
-    } catch (_e) {}
+    } catch {}
   })
   return { placeholders: results }
 }

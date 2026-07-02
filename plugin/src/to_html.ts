@@ -17,7 +17,7 @@ export function nodeToHTML(node: SceneNode, inAutoLayout = false, opts?: NodeHTM
   const closeTag = `</${tag}>`
 
   if (node.type === 'TEXT') {
-    const tn = node as TextNode
+    const tn = node
     return `${openTag}${escapeHTML(tn.characters)}${closeTag}`
   }
 
@@ -25,7 +25,7 @@ export function nodeToHTML(node: SceneNode, inAutoLayout = false, opts?: NodeHTM
     const parentHasLayout = 'layoutMode' in node && (node as FrameNode).layoutMode !== 'NONE'
     const children = node.children
       .filter((c) => c.visible !== false)
-      .map((c) => nodeToHTML(c as SceneNode, parentHasLayout, opts, false))
+      .map((c) => nodeToHTML(c, parentHasLayout, opts, false))
       .join('\n    ')
     return `${openTag}\n    ${children}\n  ${closeTag}`
   }
@@ -63,13 +63,13 @@ function figmaCSS(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, is
 
   if (hasPos && isTopLevel && opts?.responsive) {
     css.push(`width: 100%`)
-    css.push(`max-width: ${(node as SceneNode).width}px`)
+    css.push(`max-width: ${(node).width}px`)
   } else if (hasPos && !isFlexChild) {
     css.push(`position: absolute`)
-    css.push(`left: ${(node as SceneNode).x}px`)
-    css.push(`top: ${(node as SceneNode).y}px`)
-    css.push(`width: ${(node as SceneNode).width}px`)
-    css.push(`height: ${(node as SceneNode).height}px`)
+    css.push(`left: ${(node).x}px`)
+    css.push(`top: ${(node).y}px`)
+    css.push(`width: ${(node).width}px`)
+    css.push(`height: ${(node).height}px`)
   } else if (hasPos && isFlexChild) {
     const hSizing = 'layoutSizingHorizontal' in node
       ? (node as unknown as Record<string, unknown>).layoutSizingHorizontal
@@ -79,22 +79,22 @@ function figmaCSS(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, is
       : undefined
     if (hSizing === 'FILL') css.push('flex: 1')
     else if (hSizing === 'HUG') css.push('width: max-content')
-    else css.push(`width: ${(node as SceneNode).width}px`)
+    else css.push(`width: ${(node).width}px`)
     if (vSizing === 'FILL') css.push('align-self: stretch')
     else if (vSizing === 'HUG') css.push('height: max-content')
-    else css.push(`height: ${(node as SceneNode).height}px`)
+    else css.push(`height: ${(node).height}px`)
   }
   if ('opacity' in node && (node as BlendMixin).opacity !== undefined && (node as BlendMixin).opacity < 1) {
     css.push(`opacity: ${(node as BlendMixin).opacity}`)
   }
-  if ('rotation' in node && (node as SceneNode).rotation !== 0) {
-    css.push(`transform: rotate(${(node as SceneNode).rotation}deg)`)
+  if ('rotation' in node && node.rotation !== 0) {
+    css.push(`transform: rotate(${node.rotation}deg)`)
   }
   if (!node.visible) css.push('display: none')
 
   // Fills
   if ('fills' in node) {
-    const fills = (node as GeometryMixin).fills
+    const fills = node.fills
     if (fills !== figma.mixed && fills && fills.length > 0) {
       const solid = fills.find((f) => f.type === 'SOLID' && f.visible !== false) as SolidPaint | undefined
       if (solid && solid.color) {
@@ -117,24 +117,24 @@ function figmaCSS(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, is
 
   // Strokes / border
   if ('strokes' in node) {
-    const strokes = (node as GeometryMixin).strokes
-    if (strokes !== figma.mixed && strokes && strokes.length > 0) {
+    const strokes = node.strokes
+    if (strokes && strokes.length > 0) {
       const solid = strokes.find((f) => f.type === 'SOLID' && f.visible !== false) as SolidPaint | undefined
       if (solid && solid.color) {
-        const sw = (node as GeometryMixin).strokeWeight
+        const sw = node.strokeWeight
         const weight = sw !== figma.mixed && typeof sw === 'number' ? sw : 1
         css.push(`border: ${weight}px solid ${rgbaStr(solid.color, solid.opacity ?? 1)}`)
       }
     }
     if ('strokeAlign' in node) {
-      const align = (node as GeometryMixin).strokeAlign
+      const align = node.strokeAlign
       if (align === 'INSIDE') css.push(`box-sizing: border-box`)
     }
   }
 
   // Corner radius
   if ('cornerRadius' in node) {
-    const cr = (node as RectangleCornerMixin).cornerRadius
+    const cr = node.cornerRadius
     if (cr !== figma.mixed && cr !== undefined && cr > 0) {
       css.push(`border-radius: ${cr}px`)
     }
@@ -142,9 +142,12 @@ function figmaCSS(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, is
 
   // Effects
   if ('effects' in node) {
-    const effects = (node as BlendMixin).effects
-    if (effects !== figma.mixed && effects) {
-      const shadows = effects.filter((e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && e.visible !== false) as ShadowEffect[]
+    const effects = node.effects
+    if (effects) {
+      const shadows = effects.filter(
+        (e): e is DropShadowEffect | InnerShadowEffect =>
+          (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && e.visible !== false
+      )
       for (const s of shadows) {
         const inset = s.type === 'INNER_SHADOW' ? 'inset ' : ''
         css.push(`box-shadow: ${inset}${s.offset.x}px ${s.offset.y}px ${s.radius}px ${s.spread ?? 0}px ${rgbaStr(s.color, s.color.a ?? 1)}`)
@@ -179,7 +182,7 @@ function figmaCSS(node: SceneNode, inAutoLayout = false, opts?: NodeHTMLOpts, is
 
   // Text styles
   if (node.type === 'TEXT') {
-    const t = node as TextNode
+    const t = node
     if (t.fontSize !== figma.mixed) css.push(`font-size: ${t.fontSize}px`)
     if (t.fontName !== figma.mixed) {
       css.push(`font-family: '${t.fontName.family}'`)

@@ -29,16 +29,16 @@ export async function handleGetResponsiveBehavior(params: Record<string, unknown
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node) throw new Error('Node not found')
   return {
-    constraints: 'constraints' in node ? (node as ConstraintsMixin).constraints : undefined,
-    layoutAlign: 'layoutAlign' in node ? (node as SceneNode).layoutAlign : undefined,
-    layoutGrow: 'layoutGrow' in node ? (node as SceneNode).layoutGrow : undefined,
-    layoutPositioning: 'layoutPositioning' in node ? (node as SceneNode).layoutPositioning : undefined,
-    layoutSizingHorizontal: 'layoutSizingHorizontal' in node ? (node as SceneNode).layoutSizingHorizontal : undefined,
-    layoutSizingVertical: 'layoutSizingVertical' in node ? (node as SceneNode).layoutSizingVertical : undefined,
-    minWidth: 'minWidth' in node ? (node as SceneNode).minWidth : undefined,
-    maxWidth: 'maxWidth' in node ? (node as SceneNode).maxWidth : undefined,
-    minHeight: 'minHeight' in node ? (node as SceneNode).minHeight : undefined,
-    maxHeight: 'maxHeight' in node ? (node as SceneNode).maxHeight : undefined,
+    constraints: 'constraints' in node ? node.constraints : undefined,
+    layoutAlign: 'layoutAlign' in node ? node.layoutAlign : undefined,
+    layoutGrow: 'layoutGrow' in node ? node.layoutGrow : undefined,
+    layoutPositioning: 'layoutPositioning' in node ? node.layoutPositioning : undefined,
+    layoutSizingHorizontal: 'layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : undefined,
+    layoutSizingVertical: 'layoutSizingVertical' in node ? node.layoutSizingVertical : undefined,
+    minWidth: 'minWidth' in node ? node.minWidth : undefined,
+    maxWidth: 'maxWidth' in node ? node.maxWidth : undefined,
+    minHeight: 'minHeight' in node ? node.minHeight : undefined,
+    maxHeight: 'maxHeight' in node ? node.maxHeight : undefined,
   }
 }
 
@@ -47,7 +47,7 @@ export async function handleGetCornerRadii(params: Record<string, unknown>): Pro
   if (!nodeId) throw new Error('nodeId is required')
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node || !('cornerRadius' in node)) throw new Error('Node has no corner radius')
-  const cm = node as RectangleCornerMixin
+  const cm = node as RectangleCornerMixin & CornerMixin
   const tl = cm.topLeftRadius, tr = cm.topRightRadius, bl = cm.bottomLeftRadius, br = cm.bottomRightRadius
   const allSame = tl === tr && tr === bl && bl === br
   return {
@@ -92,16 +92,26 @@ export async function handleGetEffectSpec(params: Record<string, unknown>): Prom
   }
 }
 
+type Settled<T> = { status: 'fulfilled'; value: T } | { status: 'rejected' }
+
+// ponytail: target is ES2017, which has no Promise.allSettled; this is the minimal shim
+function settle<T>(p: Promise<T>): Promise<Settled<T>> {
+  return p.then(
+    (value): Settled<T> => ({ status: 'fulfilled', value }),
+    (): Settled<T> => ({ status: 'rejected' })
+  )
+}
+
 export async function handleGetNodeStyles(params: Record<string, unknown>): Promise<unknown> {
   const nodeId = params.nodeId as string
   if (!nodeId) throw new Error('nodeId is required')
-  const [css, layout, responsive, effects, stroke, radius] = await Promise.allSettled([
-    handleGetCss({ nodeId }),
-    handleGetLayoutSpec({ nodeId }),
-    handleGetResponsiveBehavior({ nodeId }),
-    handleGetEffectSpec({ nodeId }),
-    handleGetStrokeSpec({ nodeId }),
-    handleGetCornerRadii({ nodeId }),
+  const [css, layout, responsive, effects, stroke, radius] = await Promise.all([
+    settle(handleGetCss({ nodeId })),
+    settle(handleGetLayoutSpec({ nodeId })),
+    settle(handleGetResponsiveBehavior({ nodeId })),
+    settle(handleGetEffectSpec({ nodeId })),
+    settle(handleGetStrokeSpec({ nodeId })),
+    settle(handleGetCornerRadii({ nodeId })),
   ])
   return {
     nodeId,

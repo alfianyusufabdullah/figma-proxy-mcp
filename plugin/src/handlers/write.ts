@@ -7,7 +7,7 @@ function assertEditor() {
 
 async function loadAllFonts(tn: TextNode): Promise<void> {
   if (tn.fontName !== figma.mixed) {
-    await figma.loadFontAsync(tn.fontName as FontName)
+    await figma.loadFontAsync(tn.fontName)
     return
   }
   const len = tn.characters.length
@@ -50,7 +50,7 @@ export async function handleSetTextContent(params: Record<string, unknown>): Pro
     throw new Error(`Node ${nodeId} is ${node.type}, not TEXT. Use find_text_nodes to locate text nodes.`)
   }
 
-  const tn = node as TextNode
+  const tn = node
   await loadAllFonts(tn)
   tn.characters = text
   return serializeNode(tn, { maxNodes: 100 })
@@ -63,7 +63,7 @@ export async function handleSetNodeVisibility(params: Record<string, unknown>): 
   if (ids.length === 0 || visible === undefined) throw new Error('nodeIds and visible are required')
   for (const id of ids) {
     const n = await figma.getNodeByIdAsync(id)
-    if (n && 'visible' in n) (n as SceneNode).visible = visible
+    if (n && 'visible' in n) (n).visible = visible
   }
   return { success: true }
 }
@@ -79,7 +79,7 @@ export async function handleSetSolidFill(params: Record<string, unknown>): Promi
   const fills: Paint[] = [{ type: 'SOLID', color: { r: c.r, g: c.g, b: c.b }, opacity: (params.opacity as number) ?? 1 }]
   try {
     await (node as GeometryMixin).setFillsAsync(fills)
-  } catch (_e) {
+  } catch {
     (node as GeometryMixin).fills = fills
   }
   return { success: true }

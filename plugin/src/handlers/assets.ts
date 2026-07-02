@@ -20,10 +20,10 @@ export async function handleGetScreenshot(params: Record<string, unknown>): Prom
         results.push({ nodeId: id, data: svg, format: 'SVG' })
       } else {
         const fmt = format === 'PDF' ? 'PDF' : 'PNG'
-        const bytes = await (node as SceneNode).exportAsync({ format: fmt as 'PNG' | 'PDF', constraint: { type: 'SCALE', value: scale } })
+        const bytes = await (node as SceneNode).exportAsync({ format: fmt, constraint: { type: 'SCALE', value: scale } })
         results.push({ nodeId: id, data: arrayToBase64(new Uint8Array(bytes)), format: fmt })
       }
-    } catch (_e) {}
+    } catch {}
   }
   return { screenshots: results }
 }
@@ -38,23 +38,25 @@ export async function handleGetImage(params: Record<string, unknown>): Promise<u
   if ('fills' in node) {
     const fills = (node as GeometryMixin).fills
     if (fills !== figma.mixed && fills) {
-      const imageFill = fills.find((f) => f.type === 'IMAGE') as ImagePaint | undefined
-      if (imageFill) imageHash = imageFill.imageHash
+      const imageFill = fills.find((f) => f.type === 'IMAGE')
+      if (imageFill) imageHash = imageFill.imageHash ?? ''
     }
   }
   if (!imageHash && 'fillStyleId' in node) {
     const styleId = (node as GeometryMixin).fillStyleId
-    if (styleId) {
+    if (styleId && styleId !== figma.mixed) {
       const style = await figma.getStyleByIdAsync(styleId)
       if (style && style.type === 'PAINT') {
-        const imageFill = (style as PaintStyle).paints.find((p) => p.type === 'IMAGE') as ImagePaint | undefined
-        if (imageFill) imageHash = imageFill.imageHash
+        const imageFill = style.paints.find((p) => p.type === 'IMAGE')
+        if (imageFill) imageHash = imageFill.imageHash ?? ''
       }
     }
   }
   if (!imageHash) throw new Error('No image fill found on this node')
 
-  const bytes = await figma.getImageByHash(imageHash).getBytesAsync()
+  const image = figma.getImageByHash(imageHash)
+  if (!image) throw new Error(`No image found for hash: ${imageHash}`)
+  const bytes = await image.getBytesAsync()
   return { nodeId, data: arrayToBase64(new Uint8Array(bytes)), format: 'PNG' }
 }
 
@@ -88,7 +90,7 @@ export async function handleGetSvg(params: Record<string, unknown>): Promise<unk
       // so agents should trust the node name for file naming rather than internal SVG IDs
       const instanceMeta: Record<string, unknown> = {}
       if (node.type === 'INSTANCE') {
-        const mainComp = await (node as InstanceNode).getMainComponentAsync()
+        const mainComp = await (node).getMainComponentAsync()
         instanceMeta.isInstance = true
         instanceMeta.mainComponentId = mainComp?.id ?? null
       }
@@ -106,7 +108,7 @@ export async function handleGetExportableNodes(params: Record<string, unknown>):
   type ExportableEntry = {
     nodeId: string; name: string; type: string
     parentId: string | null; parentName: string | null
-    exportSettings: Array<{ format: string; suffix: string; constraint?: unknown }>
+    exportSettings: ReadonlyArray<ExportSettings>
     width: number; height: number; hasImageFill: boolean
   }
   const results: ExportableEntry[] = []
@@ -118,15 +120,15 @@ export async function handleGetExportableNodes(params: Record<string, unknown>):
   }
 
   const walk = (n: BaseNode): void => {
-    const es = (n as any).exportSettings as Array<{ format: string; suffix: string; constraint?: unknown }> | undefined
+    const es = 'exportSettings' in n ? n.exportSettings : undefined
     const hasEs = Array.isArray(es) && es.length > 0
     const imgFill = hasImgFill(n)
     if ((hasEs || imgFill) && 'width' in n) {
       results.push({
         nodeId: n.id, name: n.name, type: n.type,
         parentId: n.parent?.id ?? null, parentName: n.parent?.name ?? null,
-        exportSettings: hasEs ? es! : [],
-        width: (n as any).width ?? 0, height: (n as any).height ?? 0,
+        exportSettings: hasEs && es ? es : [],
+        width: n.width, height: n.height,
         hasImageFill: imgFill,
       })
     }
@@ -138,7 +140,7 @@ export async function handleGetExportableNodes(params: Record<string, unknown>):
   if (nodeId) {
     const node = await figma.getNodeByIdAsync(nodeId)
     if (!node) throw new Error(`Node not found: ${nodeId}`)
-    walk(node as BaseNode)
+    walk(node)
   } else {
     for (const child of figma.currentPage.children) walk(child)
   }
@@ -154,7 +156,7 @@ export async function handleGetCssBatch(params: Record<string, unknown>): Promis
   const cssMap: Record<string, Record<string, string>> = {}
   const walk = async (n: BaseNode): Promise<void> => {
     if ('getCSSAsync' in n) {
-      try { cssMap[n.id] = await (n as SceneNode).getCSSAsync() } catch (_e) {}
+      try { cssMap[n.id] = await (n as SceneNode).getCSSAsync() } catch {}
     }
     if ('children' in n) {
       for (const child of (n as BaseNode & { children: ReadonlyArray<BaseNode> }).children) await walk(child)

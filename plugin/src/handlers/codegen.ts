@@ -30,7 +30,7 @@ export async function handleToHtml(params: Record<string, unknown>): Promise<unk
     }
     collectVectors(node)
     await Promise.all(vectorNodes.map(async (vn) => {
-      try { svgMap.set(vn.id, await vn.exportAsync({ format: 'SVG_STRING' })) } catch (_e) {}
+      try { svgMap.set(vn.id, await vn.exportAsync({ format: 'SVG_STRING' })) } catch {}
     }))
   }
 
@@ -45,7 +45,7 @@ export async function handleToHtmlPage(params: Record<string, unknown>): Promise
   const sections: Array<{ pageName: string; html: string }> = []
   for (const p of pages) {
     await p.loadAsync()
-    const children = p.children.filter((c) => c.visible !== false).map((c) => nodeToHTML(c as SceneNode)).join('\n    ')
+    const children = p.children.filter((c) => c.visible !== false).map((c) => nodeToHTML(c)).join('\n    ')
     sections.push({
       pageName: p.name,
       html: `<div data-figma-page="${escapeAttr(p.name)}">\n    ${children}\n  </div>`,

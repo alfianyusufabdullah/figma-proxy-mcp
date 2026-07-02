@@ -12,7 +12,7 @@ import {
 
 figma.showUI(__html__, { width: 320, height: 230 })
 
-figma.on('selectionchange', () => { try { sendStatus() } catch (_e) {} })
+figma.on('selectionchange', () => { try { sendStatus() } catch {} })
 
 function sendStatus() {
   try {
@@ -20,7 +20,7 @@ function sendStatus() {
       type: 'plugin-status',
       payload: strip({ fileKey: getFileKey(), fileName: figma.root.name, selectionCount: figma.currentPage.selection.length }),
     })
-  } catch (_e) {}
+  } catch {}
 }
 
 async function handleRequest(requestId: string, command: string, params: Record<string, unknown>) {
@@ -70,24 +70,34 @@ async function handleRequest(requestId: string, command: string, params: Record<
     }
     figma.ui.postMessage({ type: 'response', requestId, data: strip(data) })
   } catch (e) {
-    figma.ui.postMessage({ type: 'response', requestId, error: (e as Error).message })
+    figma.ui.postMessage({ type: 'response', requestId, error: e instanceof Error ? e.message : String(e) })
   }
 }
 
-figma.ui.onmessage = async (msg) => {
+interface PluginMessage {
+  type: string
+  requestId?: string
+  command?: string
+  params?: Record<string, unknown>
+  url?: string
+}
+
+figma.ui.onmessage = (msg: PluginMessage) => {
   if (msg.type === 'ui-ready') {
-    try {
-      const wsUrl = await figma.clientStorage.getAsync('wsUrl')
-      figma.ui.postMessage({ type: 'ws_url', url: wsUrl || 'ws://localhost:3000' })
-    } catch (_e) {
-      figma.ui.postMessage({ type: 'ws_url', url: 'ws://localhost:3000' })
-    }
-    try { sendStatus() } catch (_e) {}
+    void (async () => {
+      try {
+        const wsUrl = (await figma.clientStorage.getAsync('wsUrl')) as string | undefined
+        figma.ui.postMessage({ type: 'ws_url', url: wsUrl || 'ws://localhost:3000' })
+      } catch {
+        figma.ui.postMessage({ type: 'ws_url', url: 'ws://localhost:3000' })
+      }
+      try { sendStatus() } catch {}
+    })()
   }
   if (msg.type === 'save_ws_url') {
-    try { await figma.clientStorage.setAsync('wsUrl', msg.url) } catch (_e) {}
+    void figma.clientStorage.setAsync('wsUrl', msg.url).catch(() => {})
   }
   if (msg.type === 'request') {
-    handleRequest(msg.requestId, msg.command, msg.params || {})
+    void handleRequest(msg.requestId ?? '', msg.command ?? '', msg.params || {})
   }
 }

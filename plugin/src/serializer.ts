@@ -44,12 +44,12 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions, isRoot =
 
   if ('x' in node) data.bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
 
-  const ab = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null
+  const ab = 'absoluteBoundingBox' in node ? node.absoluteBoundingBox : null
   if (ab) data.absoluteBounds = { x: ab.x, y: ab.y, width: ab.width, height: ab.height }
 
-  const exportSettings = (node as any).exportSettings as Array<{ format: string; suffix: string; constraint?: unknown }> | undefined
-  if (Array.isArray(exportSettings) && exportSettings.length > 0) {
-    data.exportSettings = exportSettings.map(s => ({ format: s.format, suffix: s.suffix, ...(s.constraint ? { constraint: s.constraint } : {}) }))
+  const exportSettings = 'exportSettings' in node ? node.exportSettings : undefined
+  if (exportSettings && exportSettings.length > 0) {
+    data.exportSettings = exportSettings.map(s => ({ format: s.format, suffix: s.suffix ?? '', ...('constraint' in s && s.constraint ? { constraint: s.constraint } : {}) }))
   }
 
   const styles: Record<string, unknown> = {}
@@ -72,8 +72,8 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions, isRoot =
   if ('effects' in node) {
     styles.effects = serializeEffects((node as BlendMixin).effects)
   }
-  if ('cornerRadius' in node) styles.cornerRadius = (node as RectangleCornerMixin).cornerRadius
-  if ('cornerSmoothing' in node) styles.cornerSmoothing = (node as RectangleCornerMixin).cornerSmoothing
+  if ('cornerRadius' in node) styles.cornerRadius = node.cornerRadius
+  if ('cornerSmoothing' in node) styles.cornerSmoothing = node.cornerSmoothing
 
   if ('layoutMode' in node) {
     const f = node as FrameNode
@@ -92,7 +92,7 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions, isRoot =
   }
 
   if ('clipsContent' in node) styles.clipsContent = (node as FrameNode).clipsContent
-  if ('constraints' in node) styles.constraints = (node as ConstraintsMixin).constraints
+  if ('constraints' in node) styles.constraints = node.constraints
 
   if ('characters' in node) {
     const t = node as TextNode
@@ -123,7 +123,7 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions, isRoot =
           didTruncate = true
           break
         }
-        limited.push(c as SceneNode)
+        limited.push(c)
       }
       const childOpts: SerializeOptions = {
         maxNodes,
@@ -172,16 +172,16 @@ export function serializePaints(paints: ReadonlyArray<Paint> | typeof figma.mixe
       }
       if (p.type === 'GRADIENT_LINEAR' || p.type === 'GRADIENT_RADIAL' || p.type === 'GRADIENT_ANGULAR' || p.type === 'GRADIENT_DIAMOND') {
         base.gradientType = p.type
-        base.gradientTransform = (p as GradientPaint).gradientTransform
-        base.gradientStops = (p as GradientPaint).gradientStops.map((s) => ({
+        base.gradientTransform = (p).gradientTransform
+        base.gradientStops = (p).gradientStops.map((s) => ({
           position: s.position,
           color: toHex(s.color),
           opacity: s.color.a ?? 1,
         }))
       }
       if (p.type === 'IMAGE') {
-        base.imageHash = (p as ImagePaint).imageHash
-        base.scaleMode = (p as ImagePaint).scaleMode
+        base.imageHash = (p).imageHash
+        base.scaleMode = (p).scaleMode
       }
       return base
     })
@@ -194,16 +194,15 @@ export function serializeEffects(effects: ReadonlyArray<Effect> | typeof figma.m
     .map((e) => {
       const base: Record<string, unknown> = { type: e.type, visible: e.visible }
       if (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') {
-        const s = e as ShadowEffect
-        base.color = toHex(s.color)
-        base.opacity = s.color.a ?? 1
-        base.offset = { x: s.offset.x, y: s.offset.y }
-        base.radius = s.radius
-        base.spread = s.spread
-        base.blendMode = s.blendMode
+        base.color = toHex(e.color)
+        base.opacity = e.color.a ?? 1
+        base.offset = { x: e.offset.x, y: e.offset.y }
+        base.radius = e.radius
+        base.spread = e.spread
+        base.blendMode = e.blendMode
       }
       if (e.type === 'LAYER_BLUR' || e.type === 'BACKGROUND_BLUR') {
-        base.radius = (e as BlurEffect).radius
+        base.radius = e.radius
       }
       return base
     })
