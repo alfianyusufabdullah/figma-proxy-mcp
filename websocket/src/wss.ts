@@ -1,5 +1,12 @@
-import { WebSocketServer } from 'ws'
+import { WebSocketServer, type RawData } from 'ws'
 import { addConnection, removeConnection, resolveRequest, rejectPendingFor } from './connections'
+import { isIncomingWsMessage } from './types'
+
+function toBuffer(data: RawData): Buffer {
+  if (Array.isArray(data)) return Buffer.concat(data)
+  if (Buffer.isBuffer(data)) return data
+  return Buffer.from(data)
+}
 
 export function createWss(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true })
@@ -14,11 +21,14 @@ export function createWss(): WebSocketServer {
 
     ws.on('message', (raw) => {
       try {
-        const msg = JSON.parse(raw.toString())
+        const msg: unknown = JSON.parse(toBuffer(raw).toString())
+        if (!isIncomingWsMessage(msg)) return
         if (msg.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return }
         if (msg.type === 'pong') { conn.isAlive = true; return }
         if (msg.type === 'response') resolveRequest(msg.requestId, msg.data, msg.error)
-      } catch (_e) {}
+      } catch {
+        /* ignore malformed message */
+      }
     })
 
     ws.on('close', () => {

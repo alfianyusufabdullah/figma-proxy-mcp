@@ -1,3 +1,5 @@
+import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { serve } from '@hono/node-server'
 import { app } from './routes'
 import { pingAll } from './connections'
@@ -9,7 +11,7 @@ const wss = createWss()
 
 const pingInterval = setInterval(pingAll, 30000)
 
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit('connection', ws, req)
   })
