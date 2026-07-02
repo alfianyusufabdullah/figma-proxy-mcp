@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws'
-import { addConnection, removeConnection, resolveRequest, rejectAllPending } from './connections'
+import { addConnection, removeConnection, resolveRequest, rejectPendingFor } from './connections'
 
 export function createWss(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true })
@@ -24,7 +24,7 @@ export function createWss(): WebSocketServer {
     ws.on('close', () => {
       removeConnection(fileKey)
       console.log(`Plugin disconnected: ${fileName}`)
-      rejectAllPending('Plugin disconnected')
+      rejectPendingFor(fileKey, 'Plugin disconnected')
     })
 
     ws.on('error', () => { removeConnection(fileKey) })

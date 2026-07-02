@@ -11,4 +11,5 @@ export interface PendingRequest {
   resolve: (v: unknown) => void
   reject: (e: Error) => void
   timer: NodeJS.Timeout
+  fileKey: string
 }

@@ -31,11 +31,15 @@ export function resolveConnection(fileKey?: string): Connection | undefined {
 
 export function sendToPlugin(conn: Connection, requestId: string, command: string, params: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    if (conn.ws.readyState !== WebSocket.OPEN) {
+      reject(new Error('Plugin socket not open'))
+      return
+    }
     const timer = setTimeout(() => {
       pending.delete(requestId)
       reject(new Error('Request timed out after 30s'))
     }, 30000)
-    pending.set(requestId, { resolve, reject, timer })
+    pending.set(requestId, { resolve, reject, timer, fileKey: conn.fileKey })
     conn.ws.send(JSON.stringify({ type: 'request', requestId, command, params }))
   })
 }
@@ -49,8 +53,9 @@ export function resolveRequest(requestId: string, data: unknown, error?: string)
   pending.delete(requestId)
 }
 
-export function rejectAllPending(reason: string): void {
+export function rejectPendingFor(fileKey: string, reason: string): void {
   for (const [id, p] of pending) {
+    if (p.fileKey !== fileKey) continue
     clearTimeout(p.timer)
     p.reject(new Error(reason))
     pending.delete(id)
