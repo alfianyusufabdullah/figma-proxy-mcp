@@ -344,11 +344,20 @@ This pattern works uniformly across all deployment topologies — local, Docker,
 
 | Tool | Key parameters | Description |
 |---|---|---|
-| `set_text_content` | `nodeId`, `text` | Replace text content. Provides a clear error if the target node is not a TEXT node, listing any text children found inside it. |
+| `set_text_content` | `nodeId`, `text` — or `updates[]` | Replace text content. Provides a clear error if the target node is not a TEXT node, listing any text children found inside it. |
 | `set_node_visibility` | `nodeIds`, `visible` | Show or hide a set of nodes |
-| `set_solid_fill` | `nodeId`, `color`, `opacity` | Replace a node's fill with a solid hex color |
-| `set_node_properties` | `nodeId`, `name`, `x`, `y`, `width`, `height`, `opacity` | Update node geometry or name |
+| `set_solid_fill` | `nodeId`, `color`, `opacity` — or `updates[]` | Replace a node's fill with a solid hex color |
+| `set_node_properties` | `nodeId`, `name`, `x`, `y`, `width`, `height`, `opacity` — or `updates[]` | Update node geometry or name |
 | `create_text` | `text`, `x`, `y`, `fontSize`, `parentId` | Create a new text node |
+
+`set_text_content`, `set_solid_fill`, and `set_node_properties` accept an `updates` array for bulk edits — one call updates many nodes, keeps going past per-node failures, and returns `{ results, succeeded, failed }` with a per-node error message for each failure:
+
+```json
+{ "tool": "set_text_content", "arguments": { "updates": [
+  { "nodeId": "2650:516", "text": "Sign up free" },
+  { "nodeId": "2650:517", "text": "No credit card required" }
+] } }
+```
 
 ### Code generation
 
