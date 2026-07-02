@@ -46,6 +46,13 @@ Slice a Figma frame into production-ready code with ≥95% visual fidelity. `$AR
 
 > **Single source of truth:** `get_slice_spec` returns the complete node tree with `styles` on every node — fills, layout, constraints, effects, strokes, typography. Do NOT call `get_css`, `get_layout_spec`, `get_responsive_behavior`, `get_effect_spec`, `get_stroke_spec`, or `get_corner_radii` for nodes already in the spec. Those are fallback-only tools for nodes discovered after the spec was fetched.
 
+### Token discipline (mandatory)
+
+- **Vector-heavy frames → disk-first, in a sub-agent.** If `get_frame_summary` reports `assetCount.vectors > 20`, `get_slice_spec` MUST run inside Sub-agent 2 with `outputDir` set (write SVGs to disk) and `outputPath` set (write the spec to disk). The sub-agent returns only a summary < 400 words — the full spec and raw SVG markup MUST NOT enter the main context. Inline SVG markup on a large frame is ~18K tokens of pure waste.
+- **Screenshot reads: max once per iteration.** Read the implementation screenshot at most once per fidelity iteration. For targeted fixes, crop per-section (hero, cards, footer) and compare regions — do not re-read the full-page screenshot every pass.
+- **Fast-path known layouts.** If the layout is recognizable from `get_frame_summary` + `get_text_content` + screenshot, build the structure first and use `get_slice_spec` only to verify specific numbers (radius, shadow, padding) — not as the sole source.
+- **Auto-skip tokens.** Skip `get_variable_tokens` / `get_typography_tokens` when `hasVariableTokens=false` AND `hasTextStyles=false` (see Phase 3).
+
 ---
 
 ## Phase 1 — Capture Reference Screenshot
@@ -83,12 +90,16 @@ Use this to plan: `hasVariableTokens` / `hasTextStyles` → signal to Sub-agent 
 
 ```
 get_slice_spec({ nodeId: "$ARGUMENTS" })
+# vector-heavy frame → disk-first (keeps markup out of context):
+get_slice_spec({ nodeId: "$ARGUMENTS", outputDir: "<abs>/assets", outputPath: "<abs>/output/slice-spec.json" })
 ```
 
 Returns three things in **one call**:
 - `node` — the complete node tree. Every node includes a `styles` object with fills, strokes, effects, layout (layoutMode, gap, padding, alignment, sizing), constraints, typography. **This is all the CSS data you need — do not fetch it again in Phase 6.**
 - `layout` — the root's auto-layout spec.
-- `svgs` — an array of `{ nodeId, name, type, svg }` with **full inline SVG markup for every vector node** in the tree. Phase 5 writes these directly; you never call `get_svg` for a node already in the spec.
+- `svgs` — one entry per vector node. **Default (inline):** `{ nodeId, name, type, svg }` with full SVG markup. **With `outputDir`:** files are written to disk and each entry is `{ nodeId, name, type, fileName, savedTo, viewBox, bytes }` — metadata only, no markup. Phase 5 uses `savedTo` directly; you never call `get_svg` for a node already in the spec.
+
+**Disk-first options:** `outputDir` writes SVGs to disk and returns metadata only (saves ~18K tokens on vector-heavy frames). `outputPath` writes the whole spec JSON to disk and returns `{ savedTo, nodeCount, sections[], assetRefs[] }`. `omitSvgs: true` drops SVGs entirely. `stylesFormat: "compact"` strips default fields; `round: true` rounds coordinates. All opt-in — default behavior is unchanged.
 
 Node count auto-expands until the full tree fits (no `maxDepth` needed). `truncated: true` is only possible past the 5000-node ceiling on very large frames — re-fetch that subtree with `get_node_full({ nodeId: "<subtree-id>" })`.
 
@@ -198,7 +209,7 @@ curl -o assets/<name>@2x.png "<downloadUrl>"
 
 ### Step 5d — Extract SVGs (already in the spec)
 
-The `get_slice_spec` response includes an `svgs` array — one entry per vector node with `{ nodeId, name, type, svg }`. Write each `svg` string straight to `assets/<name>.svg`. **No `get_svg` call needed** — the spec already made it for you.
+The `get_slice_spec` response includes an `svgs` array. **If you passed `outputDir`** (recommended for vector-heavy frames), the files are already on disk — use each entry's `savedTo`/`fileName`; there is nothing to write. **Otherwise (inline mode)**, each entry has an `svg` string — write it straight to `assets/<name>.svg`. Either way, **no `get_svg` call needed** — the spec already made it for you.
 
 Only call `get_svg` for a vector node discovered *after* the spec was fetched (rare):
 
