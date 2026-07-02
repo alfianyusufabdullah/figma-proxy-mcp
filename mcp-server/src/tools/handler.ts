@@ -242,7 +242,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('create_text', { text: parsed.text, x: parsed.x, y: parsed.y, fontSize: parsed.fontSize, parentId: parsed.parentId }, fileKey)
           break
         case 'set_node_properties':
-          data = await rpc('set_node_properties', { nodeId: parsed.nodeId, name: parsed.name, x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height, opacity: parsed.opacity }, fileKey)
+          data = await rpc('set_node_properties', { nodeId: parsed.nodeId, name: parsed.name, x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height, opacity: parsed.opacity, updates: parsed.updates }, fileKey)
           break
         case 'get_layout_spec':
           data = await rpc('get_layout_spec', { nodeId: parsed.nodeId }, fileKey)

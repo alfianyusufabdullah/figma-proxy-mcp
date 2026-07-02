@@ -54,7 +54,12 @@ export const toolSchemas = {
     fileKey: FileKeySchema,
   }).refine(v => v.updates !== undefined || (v.nodeId !== undefined && v.color !== undefined), { message: 'Provide nodeId + color, or updates[] for bulk' }),
   create_text: z.object({ text: z.string(), x: z.number().optional(), y: z.number().optional(), fontSize: z.number().optional(), parentId: NodeIdSchema.optional(), fileKey: FileKeySchema }),
-  set_node_properties: z.object({ nodeId: NodeIdSchema, name: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(), opacity: z.number().min(0).max(1).optional(), fileKey: FileKeySchema }),
+  set_node_properties: z.object({
+    nodeId: NodeIdSchema.optional(),
+    name: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(), opacity: OpacitySchema,
+    updates: z.array(z.object({ nodeId: NodeIdSchema, name: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(), opacity: OpacitySchema })).min(1).optional(),
+    fileKey: FileKeySchema,
+  }).refine(v => v.updates !== undefined || v.nodeId !== undefined, { message: 'Provide nodeId, or updates[] for bulk' }),
   get_layout_spec: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
   get_responsive_behavior: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
   get_corner_radii: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),

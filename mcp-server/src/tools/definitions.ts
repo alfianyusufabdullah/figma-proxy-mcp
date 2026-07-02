@@ -303,20 +303,36 @@ export const toolList = [
   },
   {
     name: 'set_node_properties',
-    description: 'Change node name, position, size, or opacity',
+    description: 'Change node name, position, size, or opacity — single (nodeId) or bulk (updates[])',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'Node ID' },
+        nodeId: { type: 'string', description: 'Node ID (single mode)' },
         name: { type: 'string', description: 'New name (optional)' },
         x: { type: 'number', description: 'X position (optional)' },
         y: { type: 'number', description: 'Y position (optional)' },
         width: { type: 'number', description: 'Width (optional)' },
         height: { type: 'number', description: 'Height (optional)' },
         opacity: { type: 'number', description: 'Opacity 0-1 (optional)' },
+        updates: {
+          type: 'array',
+          description: 'Bulk mode: list of { nodeId, name?, x?, y?, width?, height?, opacity? }. Continues past per-node failures and returns per-node results.',
+          items: {
+            type: 'object',
+            properties: {
+              nodeId: { type: 'string', description: 'Node ID' },
+              name: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              opacity: { type: 'number', description: 'Opacity 0-1' },
+            },
+            required: ['nodeId'],
+          },
+        },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
-      required: ['nodeId'],
     },
   },
   {

@@ -140,18 +140,28 @@ export async function handleCreateText(params: Record<string, unknown>): Promise
   return serializeNode(tn, { maxNodes: 100 })
 }
 
+type NodePropsUpdate = { nodeId: string; name?: string; x?: number; y?: number; width?: number; height?: number; opacity?: number }
+
+async function setNodePropertiesOne(props: NodePropsUpdate): Promise<unknown> {
+  const node = await figma.getNodeByIdAsync(props.nodeId)
+  if (!node) throw new Error(`Node not found: ${props.nodeId}`)
+  const sn = node as SceneNode
+  if (props.name !== undefined) sn.name = props.name
+  if (props.x !== undefined && 'x' in sn) sn.x = props.x
+  if (props.y !== undefined && 'y' in sn) sn.y = props.y
+  if (props.width !== undefined && 'resize' in sn) sn.resize(props.width, props.height !== undefined ? props.height : sn.height)
+  if (props.height !== undefined && 'resize' in sn && props.width === undefined) sn.resize(sn.width, props.height)
+  if (props.opacity !== undefined && 'opacity' in sn) sn.opacity = props.opacity
+  return serializeNode(sn, { maxNodes: 100 })
+}
+
 export async function handleSetNodeProperties(params: Record<string, unknown>): Promise<unknown> {
   assertEditor()
+  const updates = params.updates as NodePropsUpdate[] | undefined
+  if (updates && updates.length > 0) {
+    return runBulk(updates, u => setNodePropertiesOne(u))
+  }
   const nodeId = params.nodeId as string
-  if (!nodeId) throw new Error('nodeId is required')
-  const node = await figma.getNodeByIdAsync(nodeId)
-  if (!node) throw new Error(`Node not found: ${nodeId}`)
-  const sn = node as SceneNode
-  if (params.name !== undefined) sn.name = params.name as string
-  if (params.x !== undefined && 'x' in sn) sn.x = params.x as number
-  if (params.y !== undefined && 'y' in sn) sn.y = params.y as number
-  if (params.width !== undefined && 'resize' in sn) sn.resize(params.width as number, params.height !== undefined ? params.height as number : sn.height)
-  if (params.height !== undefined && 'resize' in sn && params.width === undefined) sn.resize(sn.width, params.height as number)
-  if (params.opacity !== undefined && 'opacity' in sn) sn.opacity = params.opacity as number
-  return serializeNode(sn, { maxNodes: 100 })
+  if (!nodeId) throw new Error('nodeId is required (or pass updates[] for bulk)')
+  return setNodePropertiesOne(params as NodePropsUpdate)
 }
