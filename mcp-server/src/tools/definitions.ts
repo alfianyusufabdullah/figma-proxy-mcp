@@ -69,6 +69,20 @@ export const toolList = [
     },
   },
   {
+    name: 'slice_bundle',
+    description: 'One disk-first call that runs get_frame_summary + get_slice_spec (SVGs + full spec to disk) + export_section_assets (PNG) + get_text_content. Returns a compact manifest; all heavy payloads land on disk. Use for the initial pass on a frame you intend to slice.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Frame or section node ID to slice' },
+        outputDir: { type: 'string', description: 'Base directory for all outputs (shared filesystem). SVGs → <dir>/assets, spec → <dir>/slice-spec.json, PNGs → <dir>/assets, text → <dir>/text-content.json.' },
+        scale: { type: 'number', description: 'PNG export scale factor 0.5–4 (default 2).' },
+        fileKey: { type: 'string', description: 'File key (omit if single file)' },
+      },
+      required: ['nodeId', 'outputDir'],
+    },
+  },
+  {
     name: 'get_styles',
     description: 'Get all local styles (paint, text, effect, grid)',
     inputSchema: {

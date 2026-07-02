@@ -24,6 +24,7 @@ export const toolSchemas = {
     precision: z.number().int().min(0).max(6).optional(),
     fileKey: FileKeySchema,
   }),
+  slice_bundle: z.object({ nodeId: NodeIdSchema, outputDir: z.string(), scale: ScaleSchema, fileKey: FileKeySchema }),
   get_styles: z.object({ fileKey: FileKeySchema }),
   get_metadata: z.object({ fileKey: FileKeySchema }),
   get_design_context: z.object({ nodeIds: z.array(NodeIdSchema).optional(), depth: DepthSchema, maxNodes: z.number().int().min(10).max(5000).optional(), fileKey: FileKeySchema }),

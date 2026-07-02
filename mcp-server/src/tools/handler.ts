@@ -364,6 +364,46 @@ export function registerToolHandler(srv: Server): void {
           data = await buildSliceSpec(parsed, fileKey)
           break
         }
+        case 'slice_bundle': {
+          const nodeId = parsed.nodeId as string
+          const outputDir = parsed.outputDir as string
+          const scale = (parsed.scale as number | undefined) ?? 2
+          const assetsDir = join(outputDir, 'assets')
+          const specPath = join(outputDir, 'slice-spec.json')
+          const textPath = join(outputDir, 'text-content.json')
+          const [summary, spec, assetsRes, text] = await Promise.all([
+            rpc('get_frame_summary', { nodeId }, fileKey).catch((e) => ({ error: (e as Error).message })),
+            buildSliceSpec({ nodeId, outputDir: assetsDir, outputPath: specPath, omitSvgs: false }, fileKey),
+            (async () => {
+              const disc = await rpc('get_exportable_nodes', { nodeId }, fileKey) as { exportableNodes: Array<{ nodeId: string; name: string; hasImageFill: boolean }> }
+              mkdirSync(assetsDir, { recursive: true })
+              const used = new Set<string>()
+              let pngCount = 0
+              for (const n of disc.exportableNodes.filter(x => x.hasImageFill)) {
+                try {
+                  const r = await rpc('get_screenshot', { nodeId: n.nodeId, format: 'PNG', scale }, fileKey) as { screenshots: Array<{ data: string }> }
+                  const s = r.screenshots[0]
+                  if (!s) continue
+                  writeFileSync(join(assetsDir, uniqueFileName(n.name, n.nodeId, used, 'png')), Buffer.from(s.data, 'base64'))
+                  pngCount++
+                } catch {}
+              }
+              return { pngCount }
+            })().catch(() => ({ pngCount: 0 })),
+            rpc('get_text_content', { nodeId }, fileKey).catch(() => null),
+          ])
+          if (text) { mkdirSync(dirname(textPath), { recursive: true }); writeFileSync(textPath, JSON.stringify(text, null, 2), 'utf8') }
+          const specSummary = spec as { savedTo?: string; assetRefs?: unknown[] }
+          const sum = summary as { hasVariableTokens?: boolean; hasTextStyles?: boolean }
+          data = {
+            summary,
+            specSavedTo: specSummary.savedTo,
+            assets: { svgCount: specSummary.assetRefs?.length ?? 0, pngCount: (assetsRes as { pngCount: number }).pngCount, dir: assetsDir },
+            text: text ? { savedTo: textPath } : null,
+            tokens: { hasVariableTokens: sum.hasVariableTokens ?? false, hasTextStyles: sum.hasTextStyles ?? false },
+          }
+          break
+        }
         default:
           throw new Error(`Unknown tool: ${name}`)
       }
