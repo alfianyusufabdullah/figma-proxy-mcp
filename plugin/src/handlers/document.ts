@@ -25,7 +25,11 @@ export async function handleGetNode(params: Record<string, unknown>): Promise<un
   const maxNodes = (params.maxNodes as number) ?? 500
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node) throw new Error(`Node not found: ${nodeId}`)
-  const serialized = serializeNode(node as SceneNode, { maxNodes })
+  const serialized = serializeNode(node as SceneNode, {
+    maxNodes,
+    excludeEmptyContainers: params.excludeEmptyContainers as boolean | undefined,
+    includeOnlyExportable: params.includeOnlyExportable as boolean | undefined,
+  })
   return { node: serialized, truncated: wasTruncated() }
 }
 

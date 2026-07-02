@@ -2,9 +2,12 @@ export interface SerializeOptions {
   depth?: number
   maxNodes?: number
   excludeVectorPaths?: boolean
+  excludeEmptyContainers?: boolean
+  includeOnlyExportable?: boolean
 }
 
 const VECTOR_LEAF_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'LINE'])
+const CONTAINER_TYPES = new Set(['FRAME', 'GROUP', 'SECTION', 'COMPONENT', 'COMPONENT_SET', 'INSTANCE'])
 
 export interface SerializedNode {
   id: string
@@ -26,7 +29,7 @@ let didTruncate = false
 export function resetCount() { nodeCount = 0; didTruncate = false }
 export function wasTruncated(): boolean { return didTruncate }
 
-export function serializeNode(node: SceneNode, opts?: SerializeOptions): SerializedNode {
+export function serializeNode(node: SceneNode, opts?: SerializeOptions, isRoot = true): SerializedNode | null {
   const data: SerializedNode = {
     id: node.id,
     name: node.name,
@@ -122,13 +125,36 @@ export function serializeNode(node: SceneNode, opts?: SerializeOptions): Seriali
         }
         limited.push(c as SceneNode)
       }
-      data.children = limited.map((c) => {
+      const childOpts: SerializeOptions = {
+        maxNodes,
+        depth: depth > 0 ? depth - 1 : -1,
+        excludeEmptyContainers: opts?.excludeEmptyContainers,
+        includeOnlyExportable: opts?.includeOnlyExportable,
+      }
+      const kept: SerializedNode[] = []
+      for (const c of limited) {
         nodeCount++
-        return serializeNode(c, { maxNodes, depth: depth > 0 ? depth - 1 : -1 })
-      })
+        const child = serializeNode(c, childOpts, false)
+        if (child) kept.push(child)
+      }
+      if (kept.length > 0) data.children = kept
       if (limited.length < visible.length) {
         data.childCount = visible.length
       }
+    }
+  }
+
+  if (!isRoot && (opts?.excludeEmptyContainers || opts?.includeOnlyExportable)) {
+    const hasPaint = (v: unknown) => Array.isArray(v) && v.length > 0
+    const hasVisual = hasPaint(styles.fills) || hasPaint(styles.strokes) || hasPaint(styles.effects) || !!data.characters || VECTOR_LEAF_TYPES.has(node.type)
+    const hasChildren = !!data.children && data.children.length > 0
+    const hasImageFill = Array.isArray(styles.fills) && (styles.fills as Array<{ type?: string }>).some((f) => f.type === 'IMAGE')
+
+    if (opts?.excludeEmptyContainers && CONTAINER_TYPES.has(node.type) && !hasVisual && !hasChildren) return null
+
+    if (opts?.includeOnlyExportable) {
+      const isExportable = !!data.exportSettings || hasImageFill || VECTOR_LEAF_TYPES.has(node.type)
+      if (!isExportable && !hasChildren) return null
     }
   }
 
