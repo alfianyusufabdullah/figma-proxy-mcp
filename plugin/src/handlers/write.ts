@@ -116,7 +116,7 @@ export async function handleSetNodeProperties(params: Record<string, unknown>): 
   if (params.name !== undefined) sn.name = params.name as string
   if (params.x !== undefined && 'x' in sn) sn.x = params.x as number
   if (params.y !== undefined && 'y' in sn) sn.y = params.y as number
-  if (params.width !== undefined && 'resize' in sn) sn.resize(params.width as number, params.height !== undefined ? params.height as number : sn.width)
+  if (params.width !== undefined && 'resize' in sn) sn.resize(params.width as number, params.height !== undefined ? params.height as number : sn.height)
   if (params.height !== undefined && 'resize' in sn && params.width === undefined) sn.resize(sn.width, params.height as number)
   if (params.opacity !== undefined && 'opacity' in sn) sn.opacity = params.opacity as number
   return serializeNode(sn, { maxNodes: 100 })
