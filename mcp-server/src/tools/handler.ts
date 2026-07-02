@@ -236,7 +236,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('set_node_visibility', { nodeIds: parsed.nodeIds, visible: parsed.visible }, fileKey)
           break
         case 'set_solid_fill':
-          data = await rpc('set_solid_fill', { nodeId: parsed.nodeId, color: parsed.color, opacity: parsed.opacity }, fileKey)
+          data = await rpc('set_solid_fill', { nodeId: parsed.nodeId, color: parsed.color, opacity: parsed.opacity, updates: parsed.updates }, fileKey)
           break
         case 'create_text':
           data = await rpc('create_text', { text: parsed.text, x: parsed.x, y: parsed.y, fontSize: parsed.fontSize, parentId: parsed.parentId }, fileKey)

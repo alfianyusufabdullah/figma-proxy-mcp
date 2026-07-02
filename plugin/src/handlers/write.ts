@@ -94,20 +94,28 @@ export async function handleSetNodeVisibility(params: Record<string, unknown>): 
   return { success: true }
 }
 
-export async function handleSetSolidFill(params: Record<string, unknown>): Promise<unknown> {
-  assertEditor()
-  const nodeId = params.nodeId as string
-  const hex = params.color as string
-  if (!nodeId || !hex) throw new Error('nodeId and color are required')
+async function setSolidFillOne(nodeId: string, hex: string, opacity?: number): Promise<void> {
   const node = await figma.getNodeByIdAsync(nodeId)
   if (!node || !('fills' in node)) throw new Error(`Node not found or cannot have fills: ${nodeId}`)
   const c = hexToRGB(hex)
-  const fills: Paint[] = [{ type: 'SOLID', color: { r: c.r, g: c.g, b: c.b }, opacity: (params.opacity as number) ?? 1 }]
+  const fills: Paint[] = [{ type: 'SOLID', color: { r: c.r, g: c.g, b: c.b }, opacity: opacity ?? 1 }]
   try {
     await (node as GeometryMixin).setFillsAsync(fills)
   } catch {
     (node as GeometryMixin).fills = fills
   }
+}
+
+export async function handleSetSolidFill(params: Record<string, unknown>): Promise<unknown> {
+  assertEditor()
+  const updates = params.updates as Array<{ nodeId: string; color: string; opacity?: number }> | undefined
+  if (updates && updates.length > 0) {
+    return runBulk(updates, u => setSolidFillOne(u.nodeId, u.color, u.opacity))
+  }
+  const nodeId = params.nodeId as string
+  const hex = params.color as string
+  if (!nodeId || !hex) throw new Error('nodeId and color are required (or pass updates[] for bulk)')
+  await setSolidFillOne(nodeId, hex, params.opacity as number | undefined)
   return { success: true }
 }
 

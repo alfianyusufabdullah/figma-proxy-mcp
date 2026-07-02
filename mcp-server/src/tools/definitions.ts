@@ -261,16 +261,28 @@ export const toolList = [
   },
   {
     name: 'set_solid_fill',
-    description: 'Replace a node fill with a solid color',
+    description: 'Replace node fill(s) with a solid color — single (nodeId + color) or bulk (updates[])',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'Node ID' },
-        color: { type: 'string', pattern: '^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$', description: 'Hex color (e.g. #ff0000)' },
+        nodeId: { type: 'string', description: 'Node ID (single mode)' },
+        color: { type: 'string', pattern: '^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$', description: 'Hex color, e.g. #ff0000 (single mode)' },
         opacity: { type: 'number', description: 'Opacity 0-1 (optional)' },
+        updates: {
+          type: 'array',
+          description: 'Bulk mode: list of { nodeId, color, opacity? }. Continues past per-node failures and returns per-node results.',
+          items: {
+            type: 'object',
+            properties: {
+              nodeId: { type: 'string', description: 'Node ID' },
+              color: { type: 'string', pattern: '^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$', description: 'Hex color' },
+              opacity: { type: 'number', description: 'Opacity 0-1 (optional)' },
+            },
+            required: ['nodeId', 'color'],
+          },
+        },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
-      required: ['nodeId', 'color'],
     },
   },
   {
