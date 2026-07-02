@@ -49,13 +49,20 @@ export const toolList = [
   },
   {
     name: 'get_slice_spec',
-    description: 'Get a complete slice specification for a node: full tree + layout + all SVG vectors in one call. Empty wrapper containers are pruned by default to reduce output size.',
+    description: 'Get a complete slice specification for a node: full tree + layout + all SVG vectors in one call. Empty wrapper containers are pruned by default. TOKEN-SAVING: pass outputDir to write SVGs to disk (response returns metadata only, not markup — saves ~18K tokens on vector-heavy frames), and/or outputPath to write the whole spec to disk and get back a compact summary.',
     inputSchema: {
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'Node ID of the frame or section to slice' },
         excludeEmptyContainers: { type: 'boolean', description: 'Prune frames/groups/instances with no visual and no kept children (default true). Set false to keep the full structural tree.' },
         includeOnlyExportable: { type: 'boolean', description: 'Keep only nodes with export settings, image fills, or vector geometry, plus their ancestors (default false).' },
+        outputDir: { type: 'string', description: 'Write each SVG vector to a file in this directory (shared filesystem). svgs[] then returns {fileName, savedTo, viewBox, bytes} instead of raw markup. Omit for inline markup (legacy behavior).' },
+        svgFilePrefix: { type: 'string', description: 'Optional prefix for SVG file names, e.g. "hero-" → hero-<name>.svg.' },
+        omitSvgs: { type: 'boolean', description: 'If true, return svgs:[] entirely (tree kept intact). Use when you only need the tree/layout.' },
+        outputPath: { type: 'string', description: 'Write the full spec (tree+layout+svg metadata) as JSON to this path; response returns only {savedTo, nodeCount, sections[], assetRefs[]}.' },
+        stylesFormat: { type: 'string', enum: ['full', 'compact', 'classes'], description: 'full (default) = every style field. compact = drop default/null fields. classes = extract repeated styles into styleClasses{}, nodes reference via styleRef.' },
+        round: { type: 'boolean', description: 'Round all dimensions/coordinates to nearest integer.' },
+        precision: { type: 'integer', description: 'Max decimal digits when round=false (default 2, only applied if set).' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
       required: ['nodeId'],

@@ -9,7 +9,7 @@ import { rpc } from '../rpc'
 import { toolSchemas } from './schemas'
 import { postprocess } from './postprocess'
 import { cacheGet, cacheSet, cacheInvalidate } from './cache'
-import { uniqueFileName, svgFileName } from './slice-transforms'
+import { uniqueFileName, svgFileName, extractViewBox, transformNumbers, applyStylesFormat, countNodes, topSections } from './slice-transforms'
 
 const CACHE_TTL: Partial<Record<string, number>> = {
   get_metadata: 30_000,
@@ -28,6 +28,93 @@ function pngSize(buf: Buffer): { width: number; height: number } | undefined {
 
 const MUTATION_TOOLS = new Set(['set_text_content', 'set_node_visibility', 'set_solid_fill', 'create_text', 'set_node_properties'])
 const VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 'ELLIPSE', 'LINE'])
+
+/** Build a slice spec (tree + layout + SVGs). Optional disk-first output:
+ *  outputDir writes SVGs to disk and returns metadata only; outputPath writes
+ *  the whole spec to disk and returns a compact summary. stylesFormat/round
+ *  shape the tree. Shared by the get_slice_spec tool and slice_bundle. */
+async function buildSliceSpec(parsed: Record<string, unknown>, fileKey: string | undefined): Promise<unknown> {
+  const nodeId = parsed.nodeId as string
+  const excludeEmptyContainers = (parsed.excludeEmptyContainers as boolean | undefined) ?? true
+  const includeOnlyExportable = parsed.includeOnlyExportable as boolean | undefined
+  let maxNodes = 500
+  let nodeResult: unknown
+  while (true) {
+    nodeResult = await rpc('get_node', { nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
+    if (!(nodeResult as { truncated?: boolean }).truncated || maxNodes >= 5000) break
+    maxNodes = Math.min(maxNodes * 2, 5000)
+  }
+  const collectVectors = (n: Record<string, unknown>, acc: string[]) => {
+    if (VECTOR_TYPES.has(n.type as string) && n.id) acc.push(n.id as string)
+    if (Array.isArray(n.children)) (n.children as Record<string, unknown>[]).forEach(c => collectVectors(c, acc))
+  }
+  const vectorIds: string[] = []
+  const rootNode = (nodeResult as { node?: Record<string, unknown> }).node
+  if (rootNode) collectVectors(rootNode, vectorIds)
+  const [layoutResult, svgResult] = await Promise.all([
+    rpc('get_layout_spec', { nodeId }, fileKey).catch(() => null),
+    vectorIds.length > 0 ? rpc('get_svg', { nodeIds: vectorIds }, fileKey).catch(() => null) : Promise.resolve(null),
+  ])
+  const rawSvgs = ((svgResult as { svgs?: Array<{ nodeId: string; name: string; type: string; svg: string }> } | null)?.svgs) ?? []
+
+  const outputDir = parsed.outputDir as string | undefined
+  const svgFilePrefix = parsed.svgFilePrefix as string | undefined
+  const omitSvgs = parsed.omitSvgs as boolean | undefined
+  let svgs: unknown[]
+  let svgFallback: string | undefined
+  if (omitSvgs) {
+    svgs = []
+  } else if (outputDir) {
+    try {
+      mkdirSync(outputDir, { recursive: true })
+      const used = new Set<string>()
+      svgs = rawSvgs.map(s => {
+        const fileName = svgFileName(s.name, s.nodeId, used, svgFilePrefix)
+        const filePath = join(outputDir, fileName)
+        writeFileSync(filePath, s.svg, 'utf8')
+        return { nodeId: s.nodeId, name: s.name, type: s.type, fileName, savedTo: filePath, viewBox: extractViewBox(s.svg), bytes: s.svg.length }
+      })
+    } catch (e) {
+      svgFallback = `disk write failed (${(e as Error).message}); returning inline`
+      svgs = rawSvgs
+    }
+  } else {
+    svgs = rawSvgs
+  }
+
+  const round = parsed.round as boolean | undefined
+  const precision = parsed.precision as number | undefined
+  let tree = nodeResult as Record<string, unknown>
+  if (round === true || precision !== undefined) {
+    tree = transformNumbers(tree, round === true, precision ?? 2) as Record<string, unknown>
+  }
+
+  const stylesFormat = (parsed.stylesFormat as 'full' | 'compact' | 'classes' | undefined) ?? 'full'
+  const styleClasses = applyStylesFormat(tree.node as Record<string, unknown> | undefined, stylesFormat)
+
+  let data: unknown = {
+    ...tree,
+    layout: layoutResult,
+    svgs,
+    ...(styleClasses ? { styleClasses } : {}),
+    ...(svgFallback ? { svgFallback } : {}),
+  }
+
+  const outputPath = parsed.outputPath as string | undefined
+  if (outputPath) {
+    mkdirSync(dirname(outputPath), { recursive: true })
+    writeFileSync(outputPath, JSON.stringify(data, null, 2), 'utf8')
+    const root = (data as { node?: Record<string, unknown> }).node
+    data = {
+      savedTo: outputPath,
+      nodeCount: root ? countNodes(root) : 0,
+      sections: topSections(root),
+      assetRefs: svgs.map(s => ({ nodeId: (s as { nodeId?: unknown }).nodeId, fileName: (s as { fileName?: unknown }).fileName })).filter(a => a.fileName),
+      truncated: (nodeResult as { truncated?: boolean }).truncated ?? false,
+    }
+  }
+  return data
+}
 
 export function registerToolHandler(srv: Server): void {
   srv.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -274,32 +361,7 @@ export function registerToolHandler(srv: Server): void {
           break
         }
         case 'get_slice_spec': {
-          const nodeId = parsed.nodeId as string
-          const excludeEmptyContainers = (parsed.excludeEmptyContainers as boolean | undefined) ?? true
-          const includeOnlyExportable = parsed.includeOnlyExportable as boolean | undefined
-          let maxNodes = 500
-          let nodeResult: unknown
-          while (true) {
-            nodeResult = await rpc('get_node', { nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
-            if (!(nodeResult as { truncated?: boolean }).truncated || maxNodes >= 5000) break
-            maxNodes = Math.min(maxNodes * 2, 5000)
-          }
-          const collectVectors = (n: Record<string, unknown>, acc: string[]) => {
-            if (VECTOR_TYPES.has(n.type as string) && n.id) acc.push(n.id as string)
-            if (Array.isArray(n.children)) (n.children as Record<string, unknown>[]).forEach(c => collectVectors(c, acc))
-          }
-          const vectorIds: string[] = []
-          const rootNode = (nodeResult as { node?: Record<string, unknown> }).node
-          if (rootNode) collectVectors(rootNode, vectorIds)
-          const [layoutResult, svgResult] = await Promise.all([
-            rpc('get_layout_spec', { nodeId }, fileKey).catch(() => null),
-            vectorIds.length > 0 ? rpc('get_svg', { nodeIds: vectorIds }, fileKey).catch(() => null) : Promise.resolve(null),
-          ])
-          data = {
-            ...(nodeResult as object),
-            layout: layoutResult,
-            svgs: (svgResult as { svgs?: unknown } | null)?.svgs ?? [],
-          }
+          data = await buildSliceSpec(parsed, fileKey)
           break
         }
         default:
