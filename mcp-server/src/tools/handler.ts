@@ -9,6 +9,7 @@ import { rpc } from '../rpc'
 import { toolSchemas } from './schemas'
 import { postprocess } from './postprocess'
 import { cacheGet, cacheSet, cacheInvalidate } from './cache'
+import { uniqueFileName, svgFileName } from './slice-transforms'
 
 const CACHE_TTL: Partial<Record<string, number>> = {
   get_metadata: 30_000,
@@ -115,9 +116,9 @@ export function registerToolHandler(srv: Server): void {
           if (outputPath || outputDir) {
             const { svgs } = data as { svgs: Array<{ nodeId: string; name: string; svg: string }> }
             if (outputPath && svgs.length > 1) throw new Error('outputPath is for single-node exports. Use outputDir for multiple nodes.')
+            const used = new Set<string>()
             const saved = svgs.map(s => {
-              const safeName = s.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()
-              const filePath = outputPath ?? join(outputDir!, `${safeName}.svg`)
+              const filePath = outputPath ?? join(outputDir!, svgFileName(s.name, s.nodeId, used))
               mkdirSync(dirname(filePath), { recursive: true })
               writeFileSync(filePath, s.svg, 'utf8')
               return { nodeId: s.nodeId, name: s.name, savedTo: filePath }
@@ -220,7 +221,7 @@ export function registerToolHandler(srv: Server): void {
           const prefix = parsed.prefix as string | undefined
           const ext = format === 'SVG' ? 'svg' : format === 'PDF' ? 'pdf' : format === 'JPG' ? 'jpg' : 'png'
           const mime = format === 'SVG' ? 'image/svg+xml' : format === 'JPG' ? 'image/jpeg' : format === 'PDF' ? 'application/pdf' : 'image/png'
-          const safePrefix = prefix ? prefix.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().replace(/-+$/, '') + '-' : ''
+          const usedNames = new Set<string>()
           const discovery = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey) as {
             exportableNodes: Array<{ nodeId: string; name: string; type: string; parentName: string | null; hasImageFill: boolean }>
           }
@@ -235,7 +236,7 @@ export function registerToolHandler(srv: Server): void {
               }
               const s = result.screenshots[0]
               if (!s) continue
-              const fileName = `${safePrefix}${node.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}.${ext}`
+              const fileName = uniqueFileName(node.name, node.nodeId, usedNames, ext, prefix)
               if (outputDir) {
                 const filePath = join(outputDir, fileName)
                 if (format === 'SVG') writeFileSync(filePath, s.data, 'utf8')
