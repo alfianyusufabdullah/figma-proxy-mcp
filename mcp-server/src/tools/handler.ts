@@ -119,7 +119,7 @@ async function buildSliceSpec(parsed: Record<string, unknown>, fileKey: string |
 export function registerToolHandler(srv: Server): void {
   srv.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params
-    const raw = (args || {}) as Record<string, unknown>
+    const raw = (args || {})
 
     try {
       const schema = toolSchemas[name as keyof typeof toolSchemas]
@@ -398,7 +398,7 @@ export function registerToolHandler(srv: Server): void {
           data = {
             summary,
             specSavedTo: specSummary.savedTo,
-            assets: { svgCount: specSummary.assetRefs?.length ?? 0, pngCount: (assetsRes as { pngCount: number }).pngCount, dir: assetsDir },
+            assets: { svgCount: specSummary.assetRefs?.length ?? 0, pngCount: (assetsRes).pngCount, dir: assetsDir },
             text: text ? { savedTo: textPath } : null,
             tokens: { hasVariableTokens: sum.hasVariableTokens ?? false, hasTextStyles: sum.hasTextStyles ?? false },
           }

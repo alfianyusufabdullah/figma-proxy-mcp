@@ -5,7 +5,7 @@ interface CacheEntry {
 
 const store = new Map<string, CacheEntry>()
 
-export function cacheGet(key: string): unknown | undefined {
+export function cacheGet(key: string): unknown {
   const entry = store.get(key)
   if (!entry) return undefined
   if (Date.now() > entry.expiresAt) {

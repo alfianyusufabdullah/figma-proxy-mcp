@@ -4,6 +4,7 @@ interface AnyNode {
   type?: string
   children?: AnyNode[]
   childCount?: number
+  styles?: { layoutMode?: string }
 }
 
 interface WalkResult {
@@ -37,7 +38,7 @@ function walkNodes(nodes: AnyNode[], result: WalkResult, visited = 0): number {
 
 function extractRootNodes(d: Record<string, unknown>): AnyNode[] {
   if (Array.isArray(d.nodes)) return d.nodes as AnyNode[]
-  if (d.node && typeof d.node === 'object') return [d.node as AnyNode]
+  if (d.node && typeof d.node === 'object') return [d.node]
   if (Array.isArray(d.selection)) return d.selection as AnyNode[]
   return []
 }
@@ -57,7 +58,7 @@ function detectPatterns(nodes: AnyNode[]): string[] {
     seen.add(node.id)
 
     const children = node.children ?? []
-    const layoutMode = (node as any).styles?.layoutMode as string | undefined
+    const layoutMode = node.styles?.layoutMode
     const nameLower = (node.name ?? '').toLowerCase()
 
     if (children.length >= 3 && layoutMode) {

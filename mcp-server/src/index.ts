@@ -32,7 +32,11 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   })
 }
 
-const httpServer = http.createServer(async (req, res) => {
+const httpServer = http.createServer((req, res) => {
+  void handleRequest(req, res)
+})
+
+async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url || '/', `http://${req.headers.host}`)
 
   if (url.pathname.startsWith('/dl/')) {
@@ -130,7 +134,7 @@ const httpServer = http.createServer(async (req, res) => {
 
   res.writeHead(405)
   res.end('Method not allowed')
-})
+}
 
 httpServer.listen(MCP_PORT, () => {
   console.log(`MCP server running on http://localhost:${MCP_PORT}/mcp`)

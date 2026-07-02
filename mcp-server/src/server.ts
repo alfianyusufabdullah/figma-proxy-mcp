@@ -8,7 +8,7 @@ export function createServer(): Server {
     { name: 'figma-proxy-mcp', version: '0.2.0' },
     { capabilities: { tools: {} } },
   )
-  srv.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolList }))
+  srv.setRequestHandler(ListToolsRequestSchema, () => ({ tools: toolList }))
   registerToolHandler(srv)
   return srv
 }
