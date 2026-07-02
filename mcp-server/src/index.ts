@@ -60,7 +60,7 @@ const httpServer = http.createServer(async (req, res) => {
 
   if (req.method === 'GET') {
     if (!sessionId || !sessions.has(sessionId)) {
-      res.writeHead(400)
+      res.writeHead(404)
       res.end('Session not found')
       return
     }
@@ -94,6 +94,13 @@ const httpServer = http.createServer(async (req, res) => {
       return
     }
 
+    if (sessionId && !sessions.has(sessionId)) {
+      console.log(`Session miss: ${sessionId} (re-init expected)`)
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null }))
+      return
+    }
+
     if (!isInitializeRequest(parsed)) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad request: not an initialize request' }, id: null }))
@@ -104,11 +111,15 @@ const httpServer = http.createServer(async (req, res) => {
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
         sessions.set(id, { transport })
+        console.log(`Session initialized: ${id} (${sessions.size} active)`)
       },
     })
 
     transport.onclose = () => {
-      if (transport.sessionId) sessions.delete(transport.sessionId)
+      if (transport.sessionId) {
+        sessions.delete(transport.sessionId)
+        console.log(`Session closed: ${transport.sessionId} (${sessions.size} active)`)
+      }
     }
 
     const srv = createServer()
