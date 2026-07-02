@@ -82,25 +82,17 @@ Use this to plan: `hasVariableTokens` / `hasTextStyles` → signal to Sub-agent 
 ### Step 2b — Full node tree
 
 ```
-get_slice_spec({
-  nodeId: "$ARGUMENTS",
-  maxDepth: 5,
-  excludeVectorPaths: true,
-  includeSvgPaths: false
-})
+get_slice_spec({ nodeId: "$ARGUMENTS" })
 ```
 
-Returns the complete node tree. Every node includes a `styles` object with: fills, strokes, effects, layout (layoutMode, gap, padding, alignment, sizing), constraints, typography. **This is all the CSS data you need — do not fetch it again in Phase 6.**
+Returns three things in **one call**:
+- `node` — the complete node tree. Every node includes a `styles` object with fills, strokes, effects, layout (layoutMode, gap, padding, alignment, sizing), constraints, typography. **This is all the CSS data you need — do not fetch it again in Phase 6.**
+- `layout` — the root's auto-layout spec.
+- `svgs` — an array of `{ nodeId, name, type, svg }` with **full inline SVG markup for every vector node** in the tree. Phase 5 writes these directly; you never call `get_svg` for a node already in the spec.
 
-`excludeVectorPaths: true` — strips detailed style data from VECTOR/ELLIPSE/STAR/POLYGON/LINE nodes (they can only be rendered as SVG anyway). Reduces response size 40–80% for illustration-heavy designs. Set to `false` only if you need fills/stroke colors from vector nodes.
+Node count auto-expands until the full tree fits (no `maxDepth` needed). `truncated: true` is only possible past the 5000-node ceiling on very large frames — re-fetch that subtree with `get_node_full({ nodeId: "<subtree-id>" })`.
 
-`maxDepth` (1–20): 3–5 for large frames. If `truncated: true`, re-fetch the truncated subtree:
-
-```
-get_node_full({ nodeId: "<truncated-section-id>" })
-```
-
-`includeSvgPaths: true` embeds SVG markup inline per VECTOR node — use only when you need SVG content but no spec run exists yet (rare: usually get_svg fallback in Phase 5 covers this).
+**Size control (default-efficient):** `excludeEmptyContainers` defaults to `true` — empty wrapper frames/groups/instances (no visual, no kept children) are pruned automatically, and invisible nodes are always skipped. Add `includeOnlyExportable: true` to keep only nodes that become assets (image fills, vectors, export settings) plus their ancestors — useful when you only need the asset map. Pass `excludeEmptyContainers: false` if you need the full structural tree for debugging.
 
 ---
 
@@ -178,21 +170,25 @@ Is the node FRAME/GROUP/COMPONENT/INSTANCE?
 
 ### Step 5c — Download IMAGE nodes
 
-For batch export:
+Batch export a whole section in one call. It returns `exported` (downloadUrls or savedTo) **and** a `manifest` — use the manifest directly for Phase 5e:
 
 ```
-export_section_assets({ nodeId: "<image-node-id>", format: "PNG", scale: 2 })
+export_section_assets({ nodeId: "<section-id>", format: "PNG", scale: 2, prefix: "hero" })
 ```
+
+Each `manifest` entry is `{ nodeId, fileName, nodeName, parentName, type, kind }`. Pass `prefix` to give files contextual names (`hero-<name>.png`) so the mapping to cards/sections is unambiguous — this resolves source-name-vs-usage confusion without a manual re-check. Omit `prefix` if node names are already descriptive.
 
 ```bash
-curl -o assets/<name>@2x.png "<downloadUrl>"
+curl -o "assets/<manifest.fileName>" "<downloadUrl>"
 ```
 
-For single node:
+For a single node:
 
 ```
 get_screenshot({ nodeId: "<image-node-id>", format: "PNG", scale: 2 })
 ```
+
+The response includes `width`/`height` (exact exported pixels) alongside `downloadUrl` — record them; they're the ground truth for the Phase 7 size check.
 
 ```bash
 curl -o assets/<name>@2x.png "<downloadUrl>"
@@ -200,21 +196,21 @@ curl -o assets/<name>@2x.png "<downloadUrl>"
 
 > ⚠️ URLs expire in 10 minutes — curl immediately after each export call.
 
-### Step 5d — Extract SVGs (spec first, API fallback)
+### Step 5d — Extract SVGs (already in the spec)
 
-1. Check the `get_slice_spec` response for inline SVG markup on the vector node (field `svgMarkup`, `svgData`, or look for SVG content in the node data).
-2. If present → write directly to `assets/<name>.svg`. **No API call needed.**
-3. If missing → call `get_svg` as fallback only:
+The `get_slice_spec` response includes an `svgs` array — one entry per vector node with `{ nodeId, name, type, svg }`. Write each `svg` string straight to `assets/<name>.svg`. **No `get_svg` call needed** — the spec already made it for you.
+
+Only call `get_svg` for a vector node discovered *after* the spec was fetched (rare):
 
 ```
-get_svg({ nodeId: "<vector-node-id>" })
+get_svg({ nodeId: "<vector-node-id>" })   ← fallback only, for nodes not in the spec
 ```
 
-> Note: `get_svg` on INSTANCE nodes may return clip-path IDs from the master component — trust the node name rather than internal IDs.
+> Note: SVGs from INSTANCE nodes may carry clip-path IDs from the master component — trust the node name rather than internal IDs.
 
 ### Step 5e — Asset manifest (required before Stage C)
 
-Write a manifest listing every asset: node ID, node type, file path. If a file is not on this list, it does not exist, and the HTML must not reference it.
+Assemble the final manifest from the `manifest` returned by `export_section_assets` (PNG assets) plus the `svgs` entries you wrote from the spec (SVG assets). Each row: `nodeId`, `kind`/`type`, `fileName`, `parentName` (usage context). If a file is not on this list, it does not exist, and the HTML must not reference it.
 
 ---
 
@@ -313,7 +309,7 @@ get_corner_radii({ nodeId })
 
 ### Step 7a — Screenshot the implementation
 
-Render HTML at Figma frame dimensions. Save as `output/implementation@2x.png`.
+Render HTML at the Figma frame dimensions. Use the `width`/`height` returned by the Phase 1 `get_screenshot` as the exact target pixel size so the two screenshots align 1:1 (no rounding drift). Save as `output/implementation@2x.png`.
 
 ### Step 7b — Side-by-side comparison
 
@@ -355,13 +351,13 @@ Common issues:
 |---|---|---|
 | Reference screenshot | A / Sub-agent 1 | `get_screenshot` on root frame |
 | Frame overview (sections, colors, fonts, asset count) | A / Sub-agent 2 | `get_frame_summary` |
-| Full node tree (single source of truth) | A / Sub-agent 2 | `get_slice_spec` (use `excludeVectorPaths: true`, `maxDepth`) |
-| Full tree without truncation | A / Sub-agent 2 | `get_node_full` |
+| Full node tree + layout + all SVGs (single source of truth) | A / Sub-agent 2 | `get_slice_spec` — empty containers pruned by default; add `includeOnlyExportable: true` for an asset-only tree |
+| Re-fetch a subtree past the 5000-node ceiling | A / Sub-agent 2 | `get_node_full` |
 | Design tokens | A / Sub-agent 1 | `get_variable_tokens`, `get_typography_tokens` (skip if hasTokens: false) |
 | All text in frame | A / Sub-agent 1 | `get_text_content` |
 | Placeholder check | A / Sub-agent 1 | `find_placeholders({ nodeId })` — optional, only if text looks suspicious |
-| SVG extraction | B / Sub-agent 3 | From spec first; `get_svg` as fallback only |
-| Raster export (IMAGE only) | B / Sub-agent 3 | `export_section_assets`, `get_screenshot` |
+| SVG extraction | B / Sub-agent 3 | Write from the spec's `svgs` array; `get_svg` only for nodes not in the spec |
+| Raster export (IMAGE only) + manifest | B / Sub-agent 3 | `export_section_assets` (returns `manifest`; `prefix` for contextual names), `get_screenshot` (returns `width`/`height`) |
 | Asset candidates (fallback) | B / Sub-agent 3 | `get_exportable_nodes` — only if spec doesn't identify IMAGE nodes |
 | Inspect deep child node | B / Sub-agent 3 | `get_node_full` on child ID |
 | CSS for nodes NOT in spec (fallback) | C | `get_node_styles({ nodeId })` |
