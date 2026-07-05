@@ -303,7 +303,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('detect_text_overflow', { page: parsed.page }, fileKey)
           break
         case 'find_placeholders':
-          data = await rpc('find_placeholders', {}, fileKey)
+          data = await rpc('find_placeholders', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_frame_summary':
           data = await rpc('get_frame_summary', { nodeId: parsed.nodeId }, fileKey)

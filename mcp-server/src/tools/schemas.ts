@@ -74,7 +74,7 @@ export const toolSchemas = {
   to_html_page: z.object({ page: z.string().optional(), fileKey: FileKeySchema }),
   get_text_segments: z.object({ nodeId: NodeIdSchema, fields: z.array(z.string()).optional(), fileKey: FileKeySchema }),
   detect_text_overflow: z.object({ page: z.string().optional(), fileKey: FileKeySchema }),
-  find_placeholders: z.object({ fileKey: FileKeySchema }),
+  find_placeholders: z.object({ nodeId: NodeIdSchema.optional(), fileKey: FileKeySchema }),
   check_text_consistency: z.object({ group_by: z.string().optional(), page: z.string().optional(), fileKey: FileKeySchema }),
   get_typography_tokens: z.object({ fileKey: FileKeySchema }),
   get_frame_summary: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),

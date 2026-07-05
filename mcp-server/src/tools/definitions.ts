@@ -417,8 +417,8 @@ export const toolList = [
   },
   {
     name: 'find_placeholders',
-    description: 'Find placeholder text (lorem ipsum, {{braces}}, [brackets], "your text", etc.)',
-    inputSchema: { type: 'object', properties: { fileKey: { type: 'string' } } },
+    description: 'Find placeholder text (lorem ipsum, {{braces}}, [brackets], "your text", etc.). Scope to a subtree with nodeId, or omit to scan all pages.',
+    inputSchema: { type: 'object', properties: { nodeId: { type: 'string', description: 'Scope to this frame/section subtree (omit to scan all pages)' }, fileKey: { type: 'string' } } },
   },
   {
     name: 'check_text_consistency',
