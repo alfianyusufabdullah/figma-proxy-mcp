@@ -210,11 +210,11 @@ export const toolList = [
   },
   {
     name: 'get_svg',
-    description: 'Export nodes as SVG markup strings. Use outputPath/outputDir to write directly to disk.',
+    description: 'Export one or many nodes to SVG. Pass nodeIds[] for bulk, nodeId for one, or omit both to export the current selection. Does NOT return raw SVG markup (too token-heavy): returns svgs[] with nodeId, name, type, viewBox, bytes, and a downloadUrl — fetch the markup with: curl -o file.svg "<downloadUrl>". Pass outputPath/outputDir to write the markup straight to disk instead. Nodes that fail are listed in errors[].',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export as SVG' },
+        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to export as SVG (bulk). Omit both nodeIds and nodeId to use the current selection.' },
         nodeId: { type: 'string', description: 'Single node ID to export as SVG' },
         outputPath: { type: 'string', description: 'Absolute file path to write SVG to disk (single node only).' },
         outputDir: { type: 'string', description: 'Absolute directory path for multi-node SVG export. Files named by node name.' },

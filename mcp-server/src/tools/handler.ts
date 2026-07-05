@@ -205,18 +205,28 @@ export function registerToolHandler(srv: Server): void {
         case 'get_svg': {
           const outputPath = parsed.outputPath as string | undefined
           const outputDir = parsed.outputDir as string | undefined
-          data = await rpc('get_svg', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey)
+          const res = await rpc('get_svg', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey) as {
+            svgs: Array<{ nodeId: string; name: string; type: string; svg: string }>
+            errors: Array<{ nodeId: string; error: string }>
+          }
+          const { svgs, errors } = res
           if (outputPath || outputDir) {
-            const { svgs } = data as { svgs: Array<{ nodeId: string; name: string; svg: string }> }
             if (outputPath && svgs.length > 1) throw new Error('outputPath is for single-node exports. Use outputDir for multiple nodes.')
             const used = new Set<string>()
             const saved = svgs.map(s => {
               const filePath = outputPath ?? join(outputDir!, svgFileName(s.name, s.nodeId, used))
               mkdirSync(dirname(filePath), { recursive: true })
               writeFileSync(filePath, s.svg, 'utf8')
-              return { nodeId: s.nodeId, name: s.name, savedTo: filePath }
+              return { nodeId: s.nodeId, name: s.name, savedTo: filePath, viewBox: extractViewBox(s.svg) }
             })
-            data = { saved }
+            data = { saved, errors: errors ?? [] }
+          } else {
+            // Return downloadUrls instead of inline markup (markup is token-heavy)
+            const out = svgs.map(s => {
+              const dlId = storeFile(s.svg, 'image/svg+xml')
+              return { nodeId: s.nodeId, name: s.name, type: s.type, viewBox: extractViewBox(s.svg), downloadUrl: `${MCP_PUBLIC_URL}/dl/${dlId}`, bytes: s.svg.length }
+            })
+            data = { svgs: out, errors: errors ?? [] }
           }
           break
         }
