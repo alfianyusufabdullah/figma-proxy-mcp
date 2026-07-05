@@ -191,9 +191,15 @@ export function registerToolHandler(srv: Server): void {
           break
         }
         case 'get_image': {
-          const raw2 = await rpc('get_image', { nodeId: parsed.nodeId }, fileKey) as { nodeId: string; data: string; format: string }
-          const id2 = storeFile(Buffer.from(raw2.data, 'base64'), 'image/png')
-          data = { nodeId: raw2.nodeId, format: raw2.format, downloadUrl: `${MCP_PUBLIC_URL}/dl/${id2}` }
+          const res = await rpc('get_image', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey) as {
+            images: Array<{ nodeId: string; data: string; format: string }>
+            errors: Array<{ nodeId: string; error: string }>
+          }
+          const images = res.images.map(img => {
+            const dlId = storeFile(Buffer.from(img.data, 'base64'), 'image/png')
+            return { nodeId: img.nodeId, format: img.format, downloadUrl: `${MCP_PUBLIC_URL}/dl/${dlId}` }
+          })
+          data = { images, errors: res.errors ?? [] }
           break
         }
         case 'get_svg': {

@@ -126,14 +126,14 @@ export const toolList = [
   },
   {
     name: 'get_image',
-    description: 'Extract the actual image bytes from a node with an image fill',
+    description: 'Extract the raw image bytes from nodes that have an image fill. Pass nodeIds[] for bulk, nodeId for one, or omit both for the current selection. Returns images[] (each with nodeId, format, downloadUrl) plus errors[] for nodes with no image fill. This returns the original embedded image, not a render — use get_screenshot to rasterize a node.',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'Node ID with an image fill' },
+        nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs with image fills (bulk). Omit both nodeIds and nodeId to use the current selection.' },
+        nodeId: { type: 'string', description: 'Single node ID with an image fill' },
         fileKey: { type: 'string', description: 'File key (omit if single file)' },
       },
-      required: ['nodeId'],
     },
   },
   {

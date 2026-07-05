@@ -28,12 +28,7 @@ export async function handleGetScreenshot(params: Record<string, unknown>): Prom
   return { screenshots: results }
 }
 
-export async function handleGetImage(params: Record<string, unknown>): Promise<unknown> {
-  const nodeId = params.nodeId as string
-  if (!nodeId) throw new Error('nodeId is required')
-  const node = await figma.getNodeByIdAsync(nodeId)
-  if (!node) throw new Error(`Node not found: ${nodeId}`)
-
+async function imageHashOf(node: BaseNode): Promise<string> {
   let imageHash = ''
   if ('fills' in node) {
     const fills = (node as GeometryMixin).fills
@@ -52,12 +47,36 @@ export async function handleGetImage(params: Record<string, unknown>): Promise<u
       }
     }
   }
-  if (!imageHash) throw new Error('No image fill found on this node')
+  return imageHash
+}
 
-  const image = figma.getImageByHash(imageHash)
-  if (!image) throw new Error(`No image found for hash: ${imageHash}`)
-  const bytes = await image.getBytesAsync()
-  return { nodeId, data: arrayToBase64(new Uint8Array(bytes)), format: 'PNG' }
+export async function handleGetImage(params: Record<string, unknown>): Promise<unknown> {
+  const nodeIds: string[] = params.nodeIds
+    ? (params.nodeIds as string[])
+    : params.nodeId
+      ? [params.nodeId as string]
+      : figma.currentPage.selection.map((n) => n.id)
+
+  if (nodeIds.length === 0) throw new Error('No nodes specified and nothing is selected')
+
+  const images: Array<{ nodeId: string; data: string; format: string }> = []
+  const errors: Array<{ nodeId: string; error: string }> = []
+
+  for (const id of nodeIds) {
+    try {
+      const node = await figma.getNodeByIdAsync(id)
+      if (!node) { errors.push({ nodeId: id, error: 'Node not found' }); continue }
+      const imageHash = await imageHashOf(node)
+      if (!imageHash) { errors.push({ nodeId: id, error: 'No image fill found on this node' }); continue }
+      const image = figma.getImageByHash(imageHash)
+      if (!image) { errors.push({ nodeId: id, error: `No image found for hash: ${imageHash}` }); continue }
+      const bytes = await image.getBytesAsync()
+      images.push({ nodeId: id, data: arrayToBase64(new Uint8Array(bytes)), format: 'PNG' })
+    } catch (e) {
+      errors.push({ nodeId: id, error: (e as Error).message })
+    }
+  }
+  return { images, errors }
 }
 
 export async function handleGetCss(params: Record<string, unknown>): Promise<unknown> {

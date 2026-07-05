@@ -32,7 +32,7 @@ export const toolSchemas = {
   get_design_context: z.object({ nodeIds: z.array(NodeIdSchema).optional(), depth: DepthSchema, maxNodes: z.number().int().min(10).max(5000).optional(), fileKey: FileKeySchema }),
   get_variables: z.object({ fileKey: FileKeySchema }),
   get_screenshot: z.object({ nodeIds: z.array(NodeIdSchema).optional(), nodeId: NodeIdSchema.optional(), format: FormatSchema, scale: ScaleSchema, outputPath: z.string().optional(), outputDir: z.string().optional(), fileKey: FileKeySchema }),
-  get_image: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
+  get_image: z.object({ nodeIds: z.array(NodeIdSchema).optional(), nodeId: NodeIdSchema.optional(), fileKey: FileKeySchema }),
   get_svg: z.object({ nodeIds: z.array(NodeIdSchema).optional(), nodeId: NodeIdSchema.optional(), outputPath: z.string().optional(), outputDir: z.string().optional(), fileKey: FileKeySchema }),
   get_css: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
   get_fonts: z.object({ fileKey: FileKeySchema }),
