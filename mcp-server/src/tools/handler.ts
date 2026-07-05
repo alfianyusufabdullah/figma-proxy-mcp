@@ -291,7 +291,7 @@ export function registerToolHandler(srv: Server): void {
           data = await rpc('export_json', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'to_html':
-          data = await rpc('to_html', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc('to_html', { nodeId: parsed.nodeId, includeSvgPaths: parsed.includeSvgPaths, responsive: parsed.responsive, assetPaths: parsed.assetPaths }, fileKey)
           break
         case 'to_html_page':
           data = await rpc('to_html_page', { page: parsed.page }, fileKey)

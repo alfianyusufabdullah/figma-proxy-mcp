@@ -387,8 +387,18 @@ export const toolList = [
   },
   {
     name: 'to_html',
-    description: 'Convert a Figma node to pre-HTML with inline CSS for quick implementation',
-    inputSchema: { type: 'object', properties: { nodeId: { type: 'string', description: 'Node ID to convert' }, fileKey: { type: 'string' } }, required: ['nodeId'] },
+    description: 'Convert a Figma node to pre-HTML with inline CSS for quick implementation. Optionally inline vector SVGs, emit responsive CSS, and rewrite asset URLs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Node ID to convert' },
+        includeSvgPaths: { type: 'boolean', description: 'Inline actual SVG markup for vector nodes instead of placeholders (default false)' },
+        responsive: { type: 'boolean', description: 'Emit responsive CSS (percentage/flex sizing) instead of fixed pixel positions (default false)' },
+        assetPaths: { type: 'string', description: 'Path prefix to prepend to image/asset URLs in the generated HTML' },
+        fileKey: { type: 'string' },
+      },
+      required: ['nodeId'],
+    },
   },
   {
     name: 'to_html_page',

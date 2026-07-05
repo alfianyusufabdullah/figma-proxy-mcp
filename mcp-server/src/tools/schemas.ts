@@ -70,7 +70,7 @@ export const toolSchemas = {
   get_variable_tokens: z.object({ fileKey: FileKeySchema }),
   get_node_variable_bindings: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
   export_json: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
-  to_html: z.object({ nodeId: NodeIdSchema, fileKey: FileKeySchema }),
+  to_html: z.object({ nodeId: NodeIdSchema, includeSvgPaths: z.boolean().optional(), responsive: z.boolean().optional(), assetPaths: z.string().optional(), fileKey: FileKeySchema }),
   to_html_page: z.object({ page: z.string().optional(), fileKey: FileKeySchema }),
   get_text_segments: z.object({ nodeId: NodeIdSchema, fields: z.array(z.string()).optional(), fileKey: FileKeySchema }),
   detect_text_overflow: z.object({ page: z.string().optional(), fileKey: FileKeySchema }),
