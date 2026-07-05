@@ -41,7 +41,7 @@ Slice a Figma frame into production-ready code with ≥95% visual fidelity. `$AR
 **Gate rules:**
 - Do not begin Stage B until both Stage A sub-agents have completed.
 - Do not begin Stage C until Stage B is complete.
-- Do not present the implementation to the user until Phase 7 fidelity is ≥ 95%.
+- Do not present the implementation to the user until Phase 7's **objective** fidelity score (SSIM + pixel-sim script) is > 95% — never on a subjective vision estimate.
 
 > **Single source of truth:** `get_slice_spec` returns the complete node tree with `styles` on every node — fills, layout, constraints, effects, strokes, typography. Do NOT call `get_css`, `get_layout_spec`, `get_responsive_behavior`, `get_effect_spec`, `get_stroke_spec`, or `get_corner_radii` for nodes already in the spec. Those are fallback-only tools for nodes discovered after the spec was fetched.
 
@@ -317,13 +317,18 @@ get_corner_radii({ nodeId })
 ## Phase 7 — Visual Fidelity Check (≥95% target)
 *[Stage C — sequential, after Phase 6]*
 
+> **Mandatory gate rules (non-negotiable):**
+> 1. The final score MUST NOT be a subjective vision estimate from the agent. Vision comparison (Step 7b) is for *diagnosing what to fix* only — it never decides pass/fail.
+> 2. The agent MUST write a script — no external libraries or dependencies (Python recommended) — that computes **SSIM** and **pixel-similarity** between the two screenshots and prints a single objective score. That script's output is the only thing that decides the gate.
+> 3. The loop MUST NOT stop until the objective score is **> 95%**. No exceptions, no "close enough".
+
 ### Step 7a — Screenshot the implementation
 
 Render HTML at the Figma frame dimensions. Use the `width`/`height` returned by the Phase 1 `get_screenshot` as the exact target pixel size so the two screenshots align 1:1 (no rounding drift). Save as `output/implementation@2x.png`.
 
-### Step 7b — Side-by-side comparison
+### Step 7b — Side-by-side comparison (diagnosis only)
 
-Compare `reference/design-reference@2x.png` against `output/implementation@2x.png`:
+Compare `reference/design-reference@2x.png` against `output/implementation@2x.png`. This pass exists to *locate deltas to fix* — it does not produce the final score.
 
 | Dimension | Check |
 |---|---|
@@ -335,12 +340,31 @@ Compare `reference/design-reference@2x.png` against `output/implementation@2x.pn
 | **Effects** | Shadows, borders, radius match |
 | **Responsiveness** | No overflow, no broken layout, no fixed-width containers at mobile/tablet/desktop |
 
-### Step 7c — Gate check
+### Step 7c — Objective measurement (mandatory, authoritative)
 
-- **≥ 95% overall** → Done. Present the implementation.
-- **< 95%** → Identify specific deltas, fix them, repeat from Step 7a.
+> **Compare per-section, not whole-page — mandatory.** A single height delta in one section shifts everything below it vertically, so a full-page SSIM/pixel diff collapses on drift even when each section is fine (false negative). Always crop into sections first, align each pair, then score each section on its own.
 
-**Never present the implementation until fidelity is ≥ 95%.**
+**Crop by section.** Use the `sections` (each with `y`/`height`) from Phase 2's `get_frame_summary` as the cut lines:
+- **Reference** — slice `reference/design-reference@2x.png` at each section's `y`/`height` (×2 for the @2x scale).
+- **Implementation** — either screenshot each section element directly, or slice `output/implementation@2x.png` at the same boundaries. Crop each pair to the same height before comparing so vertical drift never leaks between sections.
+
+Write a self-contained script (no third-party libs — the agent picks its own approach) that, **for each section pair**:
+
+1. Decodes both PNGs to raw pixels.
+2. If dimensions differ, resamples one to match the other.
+3. Computes two metrics:
+   - **Pixel-similarity** — mean per-channel absolute difference, reported as `1 − meanDiff/255` (%).
+   - **SSIM** — windowed structural similarity (luma), using the standard means/variances/covariance formula with a sliding window; average the per-window SSIM into a single score (%).
+4. Prints per-section metrics plus a combined **objective score** (e.g. mean of the two, or the lower — pick one and keep it consistent).
+
+The **overall gate score is the lowest section score** (weakest section decides), so drift or a broken section can't be masked by strong ones — and the per-section breakdown pinpoints exactly what to fix. Run it however is convenient — inline (e.g. `python3 -c "..."`) or a throwaway script; no need to persist a file. The agent's own visual impression carries no weight in the gate.
+
+### Step 7d — Gate check
+
+- **Objective score > 95%** → Done. Present the implementation.
+- **≤ 95%** → Use Step 7b to identify specific deltas, fix them, repeat from Step 7a. Do not stop, do not present.
+
+**Never present the implementation until the objective score from Step 7c is > 95%. A subjective "looks right" is not a pass.**
 
 Common issues:
 - Hardcoded colors → replace with CSS custom properties
