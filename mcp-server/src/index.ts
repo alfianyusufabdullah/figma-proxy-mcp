@@ -2,26 +2,17 @@ import http from 'http'
 import { randomUUID } from 'crypto'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
-import { MCP_PORT, MCP_API_KEY } from './config'
+import { MCP_PORT, PROXY_URL, MCP_PUBLIC_URL, getApiKey, generateApiKey } from './config'
+import { apiKeyStore } from './context'
 import { createServer } from './server'
 import { serveFile } from './filestore'
 
 interface SessionEntry {
   transport: StreamableHTTPServerTransport
+  apiKey: string
 }
 
 const sessions = new Map<string, SessionEntry>()
-
-function checkAuth(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-  if (!MCP_API_KEY) return true
-  const auth = req.headers['authorization']
-  if (auth !== `Bearer ${MCP_API_KEY}`) {
-    res.writeHead(401, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return false
-  }
-  return true
-}
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -38,6 +29,15 @@ const httpServer = http.createServer((req, res) => {
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url || '/', `http://${req.headers.host}`)
+
+  if (url.pathname === '/generate-apikey' && req.method === 'GET') {
+    const key = generateApiKey()
+    const wsUrl = PROXY_URL.replace(/^http/, 'ws') + '/' + key
+    const mcpUrl = MCP_PUBLIC_URL + '/mcp?apikey=' + key
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ apiKey: key, wsUrl, mcpUrl }))
+    return
+  }
 
   if (url.pathname.startsWith('/dl/')) {
     const id = url.pathname.slice(4)
@@ -58,7 +58,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
-  if (!checkAuth(req, res)) return
+  const apiKey = url.searchParams.get('apikey') || ''
+
+  if (!apiKey) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Missing apikey query parameter. Generate one via GET /generate-apikey' }))
+    return
+  }
+
+  if (apiKey !== getApiKey()) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Invalid apikey' }))
+    return
+  }
 
   const sessionId = req.headers['mcp-session-id'] as string | undefined
 
@@ -68,7 +80,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.end('Session not found')
       return
     }
-    await sessions.get(sessionId)!.transport.handleRequest(req, res)
+    const session = sessions.get(sessionId)!
+    await apiKeyStore.run(session.apiKey, () => session.transport.handleRequest(req, res))
     return
   }
 
@@ -94,7 +107,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     }
 
     if (sessionId && sessions.has(sessionId)) {
-      await sessions.get(sessionId)!.transport.handleRequest(req, res, parsed)
+      const session = sessions.get(sessionId)!
+      await apiKeyStore.run(session.apiKey, () => session.transport.handleRequest(req, res, parsed))
       return
     }
 
@@ -114,8 +128,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        sessions.set(id, { transport })
-        console.log(`Session initialized: ${id} (${sessions.size} active)`)
+        sessions.set(id, { transport, apiKey })
+        console.log(`Session initialized: ${id} apiKey=${apiKey.slice(0, 8)}... (${sessions.size} active)`)
       },
     })
 
@@ -128,7 +142,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
     const srv = createServer()
     await srv.connect(transport)
-    await transport.handleRequest(req, res, parsed)
+    await apiKeyStore.run(apiKey, () => transport.handleRequest(req, res, parsed))
     return
   }
 
@@ -138,5 +152,4 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
 httpServer.listen(MCP_PORT, () => {
   console.log(`MCP server running on http://localhost:${MCP_PORT}/mcp`)
-  if (MCP_API_KEY) console.log('API key auth enabled')
 })
