@@ -1,5 +1,6 @@
 import { WebSocketServer, type RawData } from 'ws'
 import { addConnection, removeConnection, resolveRequest, rejectPendingFor } from './connections'
+import { isValidApiKey } from './apiKeys'
 import { isIncomingWsMessage } from './types'
 
 function toBuffer(data: RawData): Buffer {
@@ -13,11 +14,21 @@ export function createWss(): WebSocketServer {
 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url || '/', 'http://localhost')
+    const pathParts = url.pathname.split('/').filter(Boolean)
+    if (pathParts.length < 1) {
+      ws.close(4001, 'Missing apiKey in path')
+      return
+    }
+    const apiKey = pathParts[0]
+    if (!isValidApiKey(apiKey)) {
+      ws.close(4003, 'Unknown apiKey. Generate one via GET /generate-apikey on the MCP server.')
+      return
+    }
     const fileKey = url.searchParams.get('fileKey') || 'default'
     const fileName = url.searchParams.get('fileName') || 'Unknown'
 
-    const conn = addConnection(fileKey, fileName, ws)
-    console.log(`Plugin connected: ${fileName} (${fileKey})`)
+    const conn = addConnection(apiKey, fileKey, fileName, ws)
+    console.log(`Plugin connected: ${fileName} (${apiKey.slice(0, 8)}...:${fileKey})`)
 
     ws.on('message', (raw) => {
       try {
@@ -32,12 +43,12 @@ export function createWss(): WebSocketServer {
     })
 
     ws.on('close', () => {
-      removeConnection(fileKey)
+      removeConnection(apiKey, fileKey)
       console.log(`Plugin disconnected: ${fileName}`)
-      rejectPendingFor(fileKey, 'Plugin disconnected')
+      rejectPendingFor(apiKey, fileKey, 'Plugin disconnected')
     })
 
-    ws.on('error', () => { removeConnection(fileKey) })
+    ws.on('error', () => { removeConnection(apiKey, fileKey) })
   })
 
   return wss
