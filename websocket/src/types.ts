@@ -2,6 +2,7 @@ import { WebSocket } from 'ws'
 
 export interface Connection {
   ws: WebSocket
+  apiKey: string
   fileKey: string
   fileName: string
   isAlive: boolean
@@ -11,6 +12,7 @@ export interface PendingRequest {
   resolve: (v: unknown) => void
   reject: (e: Error) => void
   timer: NodeJS.Timeout
+  apiKey: string
   fileKey: string
 }
 
