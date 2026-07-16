@@ -3,6 +3,7 @@ import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { MCP_PUBLIC_URL } from '../config'
+import { apiKeyStore } from '../context'
 import { storeFile } from '../filestore'
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { rpc } from '../rpc'
@@ -33,14 +34,14 @@ const VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON', 
  *  outputDir writes SVGs to disk and returns metadata only; outputPath writes
  *  the whole spec to disk and returns a compact summary. stylesFormat/round
  *  shape the tree. Shared by the get_slice_spec tool and slice_bundle. */
-async function buildSliceSpec(parsed: Record<string, unknown>, fileKey: string | undefined): Promise<unknown> {
+async function buildSliceSpec(apiKey: string, parsed: Record<string, unknown>, fileKey: string | undefined): Promise<unknown> {
   const nodeId = parsed.nodeId as string
   const excludeEmptyContainers = (parsed.excludeEmptyContainers as boolean | undefined) ?? true
   const includeOnlyExportable = parsed.includeOnlyExportable as boolean | undefined
   let maxNodes = 500
   let nodeResult: unknown
   while (true) {
-    nodeResult = await rpc('get_node', { nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
+    nodeResult = await rpc(apiKey, 'get_node', { nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
     if (!(nodeResult as { truncated?: boolean }).truncated || maxNodes >= 5000) break
     maxNodes = Math.min(maxNodes * 2, 5000)
   }
@@ -52,8 +53,8 @@ async function buildSliceSpec(parsed: Record<string, unknown>, fileKey: string |
   const rootNode = (nodeResult as { node?: Record<string, unknown> }).node
   if (rootNode) collectVectors(rootNode, vectorIds)
   const [layoutResult, svgResult] = await Promise.all([
-    rpc('get_layout_spec', { nodeId }, fileKey).catch(() => null),
-    vectorIds.length > 0 ? rpc('get_svg', { nodeIds: vectorIds }, fileKey).catch(() => null) : Promise.resolve(null),
+    rpc(apiKey, 'get_layout_spec', { nodeId }, fileKey).catch(() => null),
+    vectorIds.length > 0 ? rpc(apiKey, 'get_svg', { nodeIds: vectorIds }, fileKey).catch(() => null) : Promise.resolve(null),
   ])
   const rawSvgs = ((svgResult as { svgs?: Array<{ nodeId: string; name: string; type: string; svg: string }> } | null)?.svgs) ?? []
 
@@ -121,6 +122,9 @@ export function registerToolHandler(srv: Server): void {
     const { name, arguments: args } = request.params
     const raw = (args || {})
 
+    const apiKey = apiKeyStore.getStore()
+    if (!apiKey) throw new Error('No API key in context')
+
     try {
       const schema = toolSchemas[name as keyof typeof toolSchemas]
       if (!schema) throw new Error(`Unknown tool: ${name}`)
@@ -128,7 +132,7 @@ export function registerToolHandler(srv: Server): void {
       const fileKey = parsed.fileKey as string | undefined
 
       const cacheTtl = CACHE_TTL[name]
-      const cacheKey = `${fileKey ?? 'default'}:${name}:${JSON.stringify(parsed)}`
+      const cacheKey = `${apiKey}:${fileKey ?? 'default'}:${name}:${JSON.stringify(parsed)}`
       if (cacheTtl !== undefined) {
         const cached = cacheGet(cacheKey)
         if (cached !== undefined) {
@@ -139,31 +143,31 @@ export function registerToolHandler(srv: Server): void {
       let data: unknown
       switch (name) {
         case 'get_document':
-          data = await rpc('get_document', { depth: parsed.depth ?? 3, maxNodes: parsed.maxNodes ?? 500 }, fileKey)
+          data = await rpc(apiKey, 'get_document', { depth: parsed.depth ?? 3, maxNodes: parsed.maxNodes ?? 500 }, fileKey)
           break
         case 'get_selection':
-          data = await rpc('get_selection', {}, fileKey)
+          data = await rpc(apiKey, 'get_selection', {}, fileKey)
           break
         case 'get_node':
-          data = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes: parsed.maxNodes, excludeEmptyContainers: parsed.excludeEmptyContainers, includeOnlyExportable: parsed.includeOnlyExportable }, fileKey)
+          data = await rpc(apiKey, 'get_node', { nodeId: parsed.nodeId, maxNodes: parsed.maxNodes, excludeEmptyContainers: parsed.excludeEmptyContainers, includeOnlyExportable: parsed.includeOnlyExportable }, fileKey)
           break
         case 'get_styles':
-          data = await rpc('get_styles', {}, fileKey)
+          data = await rpc(apiKey, 'get_styles', {}, fileKey)
           break
         case 'get_metadata':
-          data = await rpc('get_metadata', {}, fileKey)
+          data = await rpc(apiKey, 'get_metadata', {}, fileKey)
           break
         case 'get_design_context':
-          data = await rpc('get_design_context', { nodeIds: parsed.nodeIds, depth: parsed.depth ?? 2, maxNodes: parsed.maxNodes ?? 300 }, fileKey)
+          data = await rpc(apiKey, 'get_design_context', { nodeIds: parsed.nodeIds, depth: parsed.depth ?? 2, maxNodes: parsed.maxNodes ?? 300 }, fileKey)
           break
         case 'get_variables':
-          data = await rpc('get_variables', {}, fileKey)
+          data = await rpc(apiKey, 'get_variables', {}, fileKey)
           break
         case 'get_screenshot': {
           const outputPath = parsed.outputPath as string | undefined
           const outputDir = parsed.outputDir as string | undefined
           const nodeIds = parsed.nodeIds as string[] | undefined
-          data = await rpc('get_screenshot', { nodeIds, nodeId: parsed.nodeId, format: parsed.format ?? 'PNG', scale: parsed.scale ?? 2 }, fileKey)
+          data = await rpc(apiKey, 'get_screenshot', { nodeIds, nodeId: parsed.nodeId, format: parsed.format ?? 'PNG', scale: parsed.scale ?? 2 }, fileKey)
           const screenshots = (data as { screenshots: Array<{ nodeId: string; data: string; format: string }> }).screenshots
           if (outputPath || outputDir) {
             if (outputPath && screenshots.length > 1) throw new Error('outputPath is for single-node exports. Use outputDir for multiple nodes.')
@@ -191,7 +195,7 @@ export function registerToolHandler(srv: Server): void {
           break
         }
         case 'get_image': {
-          const res = await rpc('get_image', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey) as {
+          const res = await rpc(apiKey, 'get_image', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey) as {
             images: Array<{ nodeId: string; data: string; format: string }>
             errors: Array<{ nodeId: string; error: string }>
           }
@@ -205,7 +209,7 @@ export function registerToolHandler(srv: Server): void {
         case 'get_svg': {
           const outputPath = parsed.outputPath as string | undefined
           const outputDir = parsed.outputDir as string | undefined
-          const res = await rpc('get_svg', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey) as {
+          const res = await rpc(apiKey, 'get_svg', { nodeIds: parsed.nodeIds, nodeId: parsed.nodeId }, fileKey) as {
             svgs: Array<{ nodeId: string; name: string; type: string; svg: string }>
             errors: Array<{ nodeId: string; error: string }>
           }
@@ -231,91 +235,91 @@ export function registerToolHandler(srv: Server): void {
           break
         }
         case 'get_css':
-          data = await rpc('get_css', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_css', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_fonts':
-          data = await rpc('get_fonts', {}, fileKey)
+          data = await rpc(apiKey, 'get_fonts', {}, fileKey)
           break
         case 'get_colors':
-          data = await rpc('get_colors', {}, fileKey)
+          data = await rpc(apiKey, 'get_colors', {}, fileKey)
           break
         case 'find_text_nodes':
-          data = await rpc('find_text_nodes', { keyword: parsed.keyword, regex: parsed.regex }, fileKey)
+          data = await rpc(apiKey, 'find_text_nodes', { keyword: parsed.keyword, regex: parsed.regex }, fileKey)
           break
         case 'get_text_content':
-          data = await rpc('get_text_content', { nodeId: parsed.nodeId, page: parsed.page }, fileKey)
+          data = await rpc(apiKey, 'get_text_content', { nodeId: parsed.nodeId, page: parsed.page }, fileKey)
           break
         case 'set_text_content':
-          data = await rpc('set_text_content', { nodeId: parsed.nodeId, text: parsed.text, updates: parsed.updates }, fileKey)
+          data = await rpc(apiKey, 'set_text_content', { nodeId: parsed.nodeId, text: parsed.text, updates: parsed.updates }, fileKey)
           break
         case 'set_node_visibility':
-          data = await rpc('set_node_visibility', { nodeIds: parsed.nodeIds, visible: parsed.visible }, fileKey)
+          data = await rpc(apiKey, 'set_node_visibility', { nodeIds: parsed.nodeIds, visible: parsed.visible }, fileKey)
           break
         case 'set_solid_fill':
-          data = await rpc('set_solid_fill', { nodeId: parsed.nodeId, color: parsed.color, opacity: parsed.opacity, updates: parsed.updates }, fileKey)
+          data = await rpc(apiKey, 'set_solid_fill', { nodeId: parsed.nodeId, color: parsed.color, opacity: parsed.opacity, updates: parsed.updates }, fileKey)
           break
         case 'create_text':
-          data = await rpc('create_text', { text: parsed.text, x: parsed.x, y: parsed.y, fontSize: parsed.fontSize, parentId: parsed.parentId }, fileKey)
+          data = await rpc(apiKey, 'create_text', { text: parsed.text, x: parsed.x, y: parsed.y, fontSize: parsed.fontSize, parentId: parsed.parentId }, fileKey)
           break
         case 'set_node_properties':
-          data = await rpc('set_node_properties', { nodeId: parsed.nodeId, name: parsed.name, x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height, opacity: parsed.opacity, updates: parsed.updates }, fileKey)
+          data = await rpc(apiKey, 'set_node_properties', { nodeId: parsed.nodeId, name: parsed.name, x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height, opacity: parsed.opacity, updates: parsed.updates }, fileKey)
           break
         case 'get_layout_spec':
-          data = await rpc('get_layout_spec', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_layout_spec', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_responsive_behavior':
-          data = await rpc('get_responsive_behavior', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_responsive_behavior', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_corner_radii':
-          data = await rpc('get_corner_radii', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_corner_radii', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_stroke_spec':
-          data = await rpc('get_stroke_spec', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_stroke_spec', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_effect_spec':
-          data = await rpc('get_effect_spec', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_effect_spec', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_component_properties':
-          data = await rpc('get_component_properties', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_component_properties', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_instance_overrides':
-          data = await rpc('get_instance_overrides', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_instance_overrides', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_variable_tokens':
-          data = await rpc('get_variable_tokens', {}, fileKey)
+          data = await rpc(apiKey, 'get_variable_tokens', {}, fileKey)
           break
         case 'get_node_variable_bindings':
-          data = await rpc('get_node_variable_bindings', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_node_variable_bindings', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'export_json':
-          data = await rpc('export_json', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'export_json', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'to_html':
-          data = await rpc('to_html', { nodeId: parsed.nodeId, includeSvgPaths: parsed.includeSvgPaths, responsive: parsed.responsive, assetPaths: parsed.assetPaths }, fileKey)
+          data = await rpc(apiKey, 'to_html', { nodeId: parsed.nodeId, includeSvgPaths: parsed.includeSvgPaths, responsive: parsed.responsive, assetPaths: parsed.assetPaths }, fileKey)
           break
         case 'to_html_page':
-          data = await rpc('to_html_page', { page: parsed.page }, fileKey)
+          data = await rpc(apiKey, 'to_html_page', { page: parsed.page }, fileKey)
           break
         case 'get_text_segments':
-          data = await rpc('get_text_segments', { nodeId: parsed.nodeId, fields: parsed.fields }, fileKey)
+          data = await rpc(apiKey, 'get_text_segments', { nodeId: parsed.nodeId, fields: parsed.fields }, fileKey)
           break
         case 'detect_text_overflow':
-          data = await rpc('detect_text_overflow', { page: parsed.page }, fileKey)
+          data = await rpc(apiKey, 'detect_text_overflow', { page: parsed.page }, fileKey)
           break
         case 'find_placeholders':
-          data = await rpc('find_placeholders', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'find_placeholders', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'get_frame_summary':
-          data = await rpc('get_frame_summary', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_frame_summary', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'check_text_consistency':
-          data = await rpc('check_text_consistency', { group_by: parsed.group_by, page: parsed.page }, fileKey)
+          data = await rpc(apiKey, 'check_text_consistency', { group_by: parsed.group_by, page: parsed.page }, fileKey)
           break
         case 'get_typography_tokens':
-          data = await rpc('get_typography_tokens', {}, fileKey)
+          data = await rpc(apiKey, 'get_typography_tokens', {}, fileKey)
           break
         case 'get_exportable_nodes':
-          data = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey)
+          data = await rpc(apiKey, 'get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey)
           break
         case 'export_section_assets': {
           const outputDir = parsed.outputDir as string | undefined
@@ -325,7 +329,7 @@ export function registerToolHandler(srv: Server): void {
           const ext = format === 'SVG' ? 'svg' : format === 'PDF' ? 'pdf' : format === 'JPG' ? 'jpg' : 'png'
           const mime = format === 'SVG' ? 'image/svg+xml' : format === 'JPG' ? 'image/jpeg' : format === 'PDF' ? 'application/pdf' : 'image/png'
           const usedNames = new Set<string>()
-          const discovery = await rpc('get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey) as {
+          const discovery = await rpc(apiKey, 'get_exportable_nodes', { nodeId: parsed.nodeId }, fileKey) as {
             exportableNodes: Array<{ nodeId: string; name: string; type: string; parentName: string | null; hasImageFill: boolean }>
           }
           if (outputDir) mkdirSync(outputDir, { recursive: true })
@@ -334,7 +338,7 @@ export function registerToolHandler(srv: Server): void {
           const manifest: Array<{ nodeId: string; fileName: string; nodeName: string; parentName: string | null; type: string; kind: string }> = []
           for (const node of discovery.exportableNodes) {
             try {
-              const result = await rpc('get_screenshot', { nodeId: node.nodeId, format, scale }, fileKey) as {
+              const result = await rpc(apiKey, 'get_screenshot', { nodeId: node.nodeId, format, scale }, fileKey) as {
                 screenshots: Array<{ nodeId: string; data: string; format: string }>
               }
               const s = result.screenshots[0]
@@ -369,7 +373,7 @@ export function registerToolHandler(srv: Server): void {
           const excludeEmptyContainers = (parsed.excludeEmptyContainers as boolean | undefined) ?? true
           const includeOnlyExportable = parsed.includeOnlyExportable as boolean | undefined
           while (true) {
-            result = await rpc('get_node', { nodeId: parsed.nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
+            result = await rpc(apiKey, 'get_node', { nodeId: parsed.nodeId, maxNodes, excludeEmptyContainers, includeOnlyExportable }, fileKey)
             if (!(result as { truncated?: boolean }).truncated || maxNodes >= 5000) break
             maxNodes = Math.min(maxNodes * 2, 5000)
           }
@@ -377,7 +381,7 @@ export function registerToolHandler(srv: Server): void {
           break
         }
         case 'get_slice_spec': {
-          data = await buildSliceSpec(parsed, fileKey)
+          data = await buildSliceSpec(apiKey, parsed, fileKey)
           break
         }
         case 'slice_bundle': {
@@ -388,16 +392,16 @@ export function registerToolHandler(srv: Server): void {
           const specPath = join(outputDir, 'slice-spec.json')
           const textPath = join(outputDir, 'text-content.json')
           const [summary, spec, assetsRes, text] = await Promise.all([
-            rpc('get_frame_summary', { nodeId }, fileKey).catch((e) => ({ error: (e as Error).message })),
-            buildSliceSpec({ nodeId, outputDir: assetsDir, outputPath: specPath, omitSvgs: false }, fileKey),
+            rpc(apiKey, 'get_frame_summary', { nodeId }, fileKey).catch((e) => ({ error: (e as Error).message })),
+            buildSliceSpec(apiKey, { nodeId, outputDir: assetsDir, outputPath: specPath, omitSvgs: false }, fileKey),
             (async () => {
-              const disc = await rpc('get_exportable_nodes', { nodeId }, fileKey) as { exportableNodes: Array<{ nodeId: string; name: string; hasImageFill: boolean }> }
+              const disc = await rpc(apiKey, 'get_exportable_nodes', { nodeId }, fileKey) as { exportableNodes: Array<{ nodeId: string; name: string; hasImageFill: boolean }> }
               mkdirSync(assetsDir, { recursive: true })
               const used = new Set<string>()
               let pngCount = 0
               for (const n of disc.exportableNodes.filter(x => x.hasImageFill)) {
                 try {
-                  const r = await rpc('get_screenshot', { nodeId: n.nodeId, format: 'PNG', scale }, fileKey) as { screenshots: Array<{ data: string }> }
+                  const r = await rpc(apiKey, 'get_screenshot', { nodeId: n.nodeId, format: 'PNG', scale }, fileKey) as { screenshots: Array<{ data: string }> }
                   const s = r.screenshots[0]
                   if (!s) continue
                   writeFileSync(join(assetsDir, uniqueFileName(n.name, n.nodeId, used, 'png')), Buffer.from(s.data, 'base64'))
@@ -406,7 +410,7 @@ export function registerToolHandler(srv: Server): void {
               }
               return { pngCount }
             })().catch(() => ({ pngCount: 0 })),
-            rpc('get_text_content', { nodeId }, fileKey).catch(() => null),
+            rpc(apiKey, 'get_text_content', { nodeId }, fileKey).catch(() => null),
           ])
           if (text) { mkdirSync(dirname(textPath), { recursive: true }); writeFileSync(textPath, JSON.stringify(text, null, 2), 'utf8') }
           const specSummary = spec as { savedTo?: string; assetRefs?: unknown[] }
@@ -425,7 +429,7 @@ export function registerToolHandler(srv: Server): void {
       }
 
       if (cacheTtl !== undefined) cacheSet(cacheKey, data, cacheTtl)
-      if (MUTATION_TOOLS.has(name)) cacheInvalidate(fileKey ?? 'default')
+      if (MUTATION_TOOLS.has(name)) cacheInvalidate(`${apiKey}:${fileKey ?? 'default'}`)
 
       return { content: [{ type: 'text', text: postprocess(name, data) }] }
     } catch (e) {
