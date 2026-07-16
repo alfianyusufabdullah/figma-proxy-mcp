@@ -8,8 +8,8 @@ function hasErrorField(value: unknown): value is RpcErrorBody {
   return typeof value === 'object' && value !== null && 'error' in value
 }
 
-export async function rpc(command: string, params?: Record<string, unknown>, fileKey?: string): Promise<unknown> {
-  const body: Record<string, unknown> = { command }
+export async function rpc(apiKey: string, command: string, params?: Record<string, unknown>, fileKey?: string): Promise<unknown> {
+  const body: Record<string, unknown> = { command, apiKey }
   if (params) body.params = params
   if (fileKey) body.fileKey = fileKey
 
