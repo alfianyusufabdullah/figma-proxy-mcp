@@ -24,7 +24,7 @@ Every existing path from an AI agent to a Figma file goes through the REST API: 
 
 |  | Figma REST API | figma-proxy-mcp |
 |---|---|---|
-| Auth | Personal access token | None — plugin runs in your own session |
+| Auth | Personal access token | API key (runtime, auto-generated) |
 | Rate limits | Yes, per-token | None |
 | Data freshness | Last saved version | Live document, including unsaved edits |
 | Write access | No (read-only endpoints) | Yes — text content, fills, visibility, geometry |
@@ -57,15 +57,19 @@ Sixty seconds from clone to connected agent:
 ```bash
 # 1. Start the servers
 docker compose up -d
+#    → An API key is printed in the mcp-server logs (auto-generated on first start)
 
 # 2. Build and load the plugin (once)
 cd plugin && npm install && npm run build
 #    → Figma Desktop: Plugins → Development → Import plugin from manifest
 #    → select plugin/manifest.json, run the plugin
+#    → paste the ws://... URL from step 1 logs into the Proxy URL field, click Connect
 
-# 3. Connect your agent
-claude mcp add figma --transport http http://localhost:3001/mcp
+# 3. Connect your agent (use the same apiKey from step 1)
+claude mcp add figma --transport http "http://localhost:3001/mcp?apikey=abc123"
 ```
+
+Need a new key later? `curl http://localhost:3001/generate-apikey` returns a fresh key + ready-to-paste URLs.
 
 Ask your agent to `get_metadata` — if it returns your file name, you're live.
 
@@ -84,7 +88,7 @@ AI Agent (Claude, Cursor, Windsurf, …)
               │  HTTP POST /rpc
               ▼
 ┌─────────────────────────────────┐
-│  websocket proxy  :3000         │  Plugin connection manager · Multi-file routing
+│  websocket proxy  :3000         │  Plugin connection manager · apiKey-namespaced routing
 └─────────────┬───────────────────┘
               │  WebSocket
               ▼
@@ -114,7 +118,7 @@ AI Agent (Claude, Cursor, Windsurf, …)
 docker compose up
 ```
 
-Set `MCP_API_KEY` and `MCP_PUBLIC_URL` in your environment (or an `.env` file) if you need authentication or remote access — see [Configuration](#configuration).
+Set `API_KEY` (pre-shared key) or `MCP_PUBLIC_URL` (remote access) in your environment — see [Configuration](#configuration).
 
 ### Option B — Local
 
@@ -142,21 +146,14 @@ The plugin reconnects automatically and persists the proxy URL across sessions.
 
 ## Connecting an AI Tools
 
-The MCP server speaks **Streamable HTTP** at `http://localhost:3001/mcp`. Any MCP client that supports HTTP transport can connect — the configurations below cover the common ones.
+The MCP server speaks **Streamable HTTP** at `http://localhost:3001/mcp`. All connections require an `apikey` query parameter — the server prints one at startup, or generate a new one with `curl http://localhost:3001/generate-apikey`.
 
 > Before connecting: the two servers must be running and the Figma plugin must be active (green indicator) in Figma Desktop. Without the plugin, the client connects fine but every tool call returns *"No Figma plugin connected. Run the plugin in Figma first."*
 
 ### Claude Code
 
 ```bash
-claude mcp add figma --transport http http://localhost:3001/mcp
-```
-
-If `MCP_API_KEY` is set on the server, add the header:
-
-```bash
-claude mcp add figma --transport http http://localhost:3001/mcp \
-  --header "Authorization: Bearer YOUR_API_KEY"
+claude mcp add figma --transport http "http://localhost:3001/mcp?apikey=YOUR_API_KEY"
 ```
 
 Verify with `claude mcp list` — `figma` should report ✔ connected.
@@ -175,7 +172,7 @@ Edit the config file for your OS:
 {
   "mcpServers": {
     "figma": {
-      "url": "http://localhost:3001/mcp"
+      "url": "http://localhost:3001/mcp?apikey=YOUR_API_KEY"
     }
   }
 }
@@ -191,7 +188,7 @@ Create or edit `.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` for a
 {
   "mcpServers": {
     "figma": {
-      "url": "http://localhost:3001/mcp"
+      "url": "http://localhost:3001/mcp?apikey=YOUR_API_KEY"
     }
   }
 }
@@ -207,7 +204,7 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "figma": {
-      "serverUrl": "http://localhost:3001/mcp"
+      "serverUrl": "http://localhost:3001/mcp?apikey=YOUR_API_KEY"
     }
   }
 }
@@ -220,13 +217,12 @@ Refresh from **Settings → Cascade → MCP Servers** after saving.
 To reach the server from another machine, expose port 3001 through a tunnel (Cloudflare Tunnel, ngrok, Tailscale Funnel, …), then point the client at the public URL:
 
 ```bash
-claude mcp add figma --transport http https://your-tunnel.example.com/mcp \
-  --header "Authorization: Bearer YOUR_API_KEY"
+claude mcp add figma --transport http "https://your-tunnel.example.com/mcp?apikey=YOUR_API_KEY"
 ```
 
 Two server-side settings matter here (see [Configuration](#configuration)):
 
-- **`MCP_API_KEY`** — always set this on a publicly reachable server; without it anyone with the URL can read and modify your open Figma file.
+- **`API_KEY`** — always set this on a publicly reachable server via env var; without it anyone with the URL can read and modify your open Figma file.
 - **`MCP_PUBLIC_URL`** — set to the tunnel URL so asset `downloadUrl`s returned by export tools are reachable from the agent's machine.
 
 ### Smoke test
@@ -236,8 +232,8 @@ Regardless of client, ask the agent to call `get_metadata`. A correct setup retu
 | Symptom | Likely cause |
 |---|---|
 | Connection refused | MCP server not running on 3001 |
-| 401 Unauthorized | `MCP_API_KEY` set but header missing/wrong |
-| "No Figma plugin connected" | Plugin not running in Figma Desktop, or it can't reach the proxy on 3000 |
+| 401 Unauthorized | Missing or invalid `apikey` query parameter |
+| "No Figma plugin connected" | Plugin not running, or API key mismatch between plugin and client |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -259,14 +255,14 @@ Then invoke it from your agent with a node ID, or with nothing to slice the curr
 |---|---|---|
 | `PROXY_URL` | `http://localhost:3000` | WebSocket proxy address, consumed by the MCP server |
 | `MCP_PORT` | `3001` | Listening port for the MCP server |
-| `MCP_API_KEY` | — | When set, all `/mcp` requests must carry `Authorization: Bearer <key>` |
+| `API_KEY` | auto-generated | Pre-shared API key for multiplexing. Auto-generated at startup if not set. Call `GET /generate-apikey` to rotate. |
 | `MCP_PUBLIC_URL` | `http://localhost:3001` | Public base URL of the MCP server. Used to construct `downloadUrl` values returned by image export tools. Must be set to your tunnel URL when the server is accessed remotely. |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Tool reference
 
-Node IDs accept both the internal colon format (`2650:516`) and the hyphen format found in Figma share URLs (`2650-516`). All tools accept an optional `fileKey` to target a specific open file; omit it when only one file is connected.
+Node IDs accept both the internal colon format (`2650:516`) and the hyphen format found in Figma share URLs (`2650-516`). All tools accept an optional `fileKey` to target a specific open file; omit it when only one file is connected under your API key.
 
 ### Document & node inspection
 
