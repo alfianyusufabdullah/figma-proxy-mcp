@@ -10,7 +10,7 @@ import {
   handleExportJson, handleToHtml, handleToHtmlPage,
 } from './handlers'
 
-figma.showUI(__html__, { width: 320, height: 230 })
+figma.showUI(__html__, { width: 380, height: 250 })
 
 figma.on('selectionchange', () => { try { sendStatus() } catch {} })
 
@@ -87,9 +87,9 @@ figma.ui.onmessage = (msg: PluginMessage) => {
     void (async () => {
       try {
         const wsUrl = (await figma.clientStorage.getAsync('wsUrl')) as string | undefined
-        figma.ui.postMessage({ type: 'ws_url', url: wsUrl || 'ws://localhost:3000' })
+        figma.ui.postMessage({ type: 'ws_url', url: wsUrl || 'ws://localhost:3000/' })
       } catch {
-        figma.ui.postMessage({ type: 'ws_url', url: 'ws://localhost:3000' })
+        figma.ui.postMessage({ type: 'ws_url', url: 'ws://localhost:3000/' })
       }
       try { sendStatus() } catch {}
     })()

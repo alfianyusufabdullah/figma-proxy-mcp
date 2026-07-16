@@ -25,17 +25,19 @@
   .stat-label { font-size: 11px; color: #888; }
   .stat-value { font-size: 16px; font-weight: 600; color: #fff; }
   .footer { margin-top: auto; font-size: 10px; color: #555; text-align: center; }
-  .url-row { display: flex; align-items: center; gap: 6px; }
-  .url-row input {
-    flex: 1; background: #1a1a1a; border: 1px solid #444; border-radius: 4px;
+  .url-row { display: flex; align-items: flex-end; gap: 6px; }
+  .url-row .url-field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .url-field label { font-size: 11px; color: #888; }
+  .url-field input {
+    background: #1a1a1a; border: 1px solid #444; border-radius: 4px;
     color: #e0e0e0; font-size: 11px; padding: 4px 8px; outline: none;
     font-family: monospace; min-width: 0;
   }
-  .url-row input:focus { border-color: #666; }
+  .url-field input:focus { border-color: #666; }
   .url-row button {
     background: #333; border: 1px solid #555; border-radius: 4px;
     color: #e0e0e0; font-size: 11px; padding: 4px 10px; cursor: pointer;
-    white-space: nowrap; flex-shrink: 0;
+    white-space: nowrap; flex-shrink: 0; height: 26px;
   }
   .url-row button:hover { background: #444; }
   .url-row button:active { background: #555; }
@@ -61,13 +63,16 @@
 
 <div class="info" id="requestInfo"></div>
 <div class="url-row">
-  <input type="text" id="wsUrlInput" placeholder="ws://localhost:3000" />
+  <div class="url-field">
+    <label>Proxy URL</label>
+    <input type="text" id="wsUrlInput" placeholder="ws://localhost:3000/<apiKey>" />
+  </div>
   <button id="connectBtn">Connect</button>
 </div>
 <div class="footer">Figma Proxy MCP</div>
 
 <script>
-  var WS_URL = 'ws://localhost:3000'
+  var WS_URL = 'ws://localhost:3000/'
   var ws = null
   var socketRef = null
   var reconnectTimer = null
@@ -103,12 +108,26 @@
     statusText.textContent = text
   }
 
+  function buildUrl() {
+    var base = WS_URL
+    if (fileKey) {
+      if (base.indexOf('?') === -1) base += '?'
+      else base += '&'
+      base += 'fileKey=' + encodeURIComponent(fileKey) + '&fileName=' + encodeURIComponent(fileName)
+    }
+    return base
+  }
+
   function connect() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     if (ws) { ws.onclose = null; ws.close() }
 
-    var url = WS_URL + '/ws'
-    if (fileKey) { url += '?fileKey=' + encodeURIComponent(fileKey) + '&fileName=' + encodeURIComponent(fileName) }
+    if (!WS_URL) {
+      setStatus('disconnected', 'No proxy URL')
+      return
+    }
+
+    var url = buildUrl()
     setStatus('connecting', 'Connecting...')
     ws = new WebSocket(url)
 
