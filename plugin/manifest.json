@@ -1,5 +1,6 @@
 {
   "name": "Figma Proxy MCP",
+  "id": "1701460457399008500",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "ui.html",
