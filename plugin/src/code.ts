@@ -82,20 +82,43 @@ interface PluginMessage {
   url?: string
 }
 
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 figma.ui.onmessage = (msg: PluginMessage) => {
   if (msg.type === 'ui-ready') {
     void (async () => {
+      let url = 'ws://localhost:3000/'
+      let hasSaved = false
+      let storageError: string | undefined
       try {
-        const wsUrl = (await figma.clientStorage.getAsync('wsUrl')) as string | undefined
-        figma.ui.postMessage({ type: 'ws_url', url: wsUrl || 'ws://localhost:3000/' })
-      } catch {
-        figma.ui.postMessage({ type: 'ws_url', url: 'ws://localhost:3000/' })
+        const saved = await figma.clientStorage.getAsync('wsUrl')
+        if (typeof saved === 'string' && saved.length > 0) {
+          url = saved
+          hasSaved = true
+        }
+      } catch (e) {
+        storageError = errorText(e)
       }
+      figma.ui.postMessage({ type: 'ws_url', url, restored: hasSaved, storageError })
       try { sendStatus() } catch {}
     })()
   }
   if (msg.type === 'save_ws_url') {
-    void figma.clientStorage.setAsync('wsUrl', msg.url).catch(() => {})
+    void (async () => {
+      try {
+        await figma.clientStorage.setAsync('wsUrl', msg.url)
+        const check = await figma.clientStorage.getAsync('wsUrl')
+        if (check !== msg.url) {
+          figma.ui.postMessage({ type: 'ws_url_saved', url: msg.url, error: `read-back mismatch: got ${String(check)}` })
+        } else {
+          figma.ui.postMessage({ type: 'ws_url_saved', url: msg.url })
+        }
+      } catch (e) {
+        figma.ui.postMessage({ type: 'ws_url_saved', url: msg.url, error: errorText(e) })
+      }
+    })()
   }
   if (msg.type === 'request') {
     void handleRequest(msg.requestId ?? '', msg.command ?? '', msg.params || {})

@@ -62,6 +62,7 @@
 </div>
 
 <div class="info" id="requestInfo"></div>
+<div class="info" id="storageInfo"></div>
 <div class="url-row">
   <div class="url-field">
     <label>Proxy URL</label>
@@ -80,6 +81,8 @@
   var pingInterval = null
   var fileKey = ''
   var fileName = ''
+  var saveTimer = null
+  var lastSavedUrl = ''
 
   var dot = document.getElementById('dot')
   var statusText = document.getElementById('statusText')
@@ -89,18 +92,58 @@
   var requestInfo = document.getElementById('requestInfo')
   var wsUrlInput = document.getElementById('wsUrlInput')
   var connectBtn = document.getElementById('connectBtn')
+  var storageInfo = document.getElementById('storageInfo')
+
+  function setStorageInfo(text) {
+    storageInfo.textContent = text
+  }
+
+  function normalizeUrl(url) {
+    var trimmed = url.trim()
+    if (!trimmed) return ''
+    if (trimmed.indexOf('://') === -1) trimmed = 'ws://' + trimmed
+    return trimmed
+  }
+
+  function persistUrl(url) {
+    var normalized = normalizeUrl(url)
+    if (!normalized || normalized === lastSavedUrl) return
+    lastSavedUrl = normalized
+    window.parent.postMessage({ pluginMessage: { type: 'save_ws_url', url: normalized } }, '*')
+  }
 
   connectBtn.addEventListener('click', function () {
-    var newUrl = wsUrlInput.value.trim()
+    var newUrl = normalizeUrl(wsUrlInput.value)
     if (!newUrl) return
+    wsUrlInput.value = newUrl
     WS_URL = newUrl
-    window.parent.postMessage({ pluginMessage: { type: 'save_ws_url', url: newUrl } }, '*')
+    persistUrl(newUrl)
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     connect()
   })
 
+  wsUrlInput.addEventListener('input', function () {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(function () { persistUrl(wsUrlInput.value) }, 400)
+  })
+
+  wsUrlInput.addEventListener('blur', function () {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+    persistUrl(wsUrlInput.value)
+  })
+
   wsUrlInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') connectBtn.click()
+  })
+
+  window.addEventListener('pagehide', function () {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+    persistUrl(wsUrlInput.value)
+  })
+
+  window.addEventListener('beforeunload', function () {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+    persistUrl(wsUrlInput.value)
   })
 
   function setStatus(state, text) {
@@ -179,8 +222,29 @@
     if (!msg) return
 
     if (msg.type === 'ws_url') {
-      WS_URL = msg.url
-      wsUrlInput.value = msg.url
+      var restored = normalizeUrl(msg.url)
+      if (restored) {
+        WS_URL = restored
+        wsUrlInput.value = restored
+        lastSavedUrl = restored
+      }
+      if (msg.storageError) {
+        console.error('clientStorage read failed:', msg.storageError)
+        setStatus('disconnected', 'Storage error — URL not remembered')
+        setStorageInfo('clientStorage error: ' + msg.storageError)
+      } else if (msg.restored) {
+        setStorageInfo('Saved URL restored')
+      }
+    }
+
+    if (msg.type === 'ws_url_saved') {
+      if (msg.error) {
+        console.error('clientStorage write failed:', msg.error)
+        setStatus('disconnected', 'Storage error — URL not remembered')
+        setStorageInfo('clientStorage error: ' + msg.error)
+      } else {
+        setStorageInfo('Proxy URL saved')
+      }
     }
 
     if (msg.type === 'plugin-status' && msg.payload) {
